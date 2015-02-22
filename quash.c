@@ -8,9 +8,10 @@
 #include <errno.h>
 #include <unistd.h>
 
-
 int getCommand(char* cmd, char* args, int cmdSize);
 int execCommand(char* cmd, char* args); 
+int cd(char* args);
+int jobs();
 
 int main(int argc, char* argv[])
 {
@@ -27,11 +28,24 @@ int main(int argc, char* argv[])
       // error running command
       continue;
     }
+    if (strcmp(cmd, "exit") == 0 || strcmp(cmd, "quit") == 0) {
+      break;
+    }
+    if (strcmp(cmd, "cd") == 0) {
+      cd(args);
+      continue;
+    }
+    if (strcmp(cmd, "jobs") == 0) {
+      jobs();
+      continue;
+    }
     // run command
     execCommand(cmd, args);
   }
   free(cmd);
   free(args);
+
+  return 0;
 }
 
 /*
@@ -108,6 +122,9 @@ int execCommand(char* cmd, char* args)
   if (pid == 0) {
     // child process
     if (execlp(cmd, cmd, args, (char*) 0) < 0) {
+      if (errno == 2) {
+        fprintf(stderr, "\n%s not found.\n", cmd);
+      }
       fprintf(stderr, "\nError execing %s. Error#%d\n", cmd, errno);
       return -1;
     }
@@ -120,5 +137,15 @@ int execCommand(char* cmd, char* args)
       return -1;
     }
   }
+  return 0;
+}
+
+int cd(char* args) {
+  // TODO: fill in change directory code
+  return 0;
+}
+
+int jobs() {
+  // TODO: fill in code to print jobs
   return 0;
 }
