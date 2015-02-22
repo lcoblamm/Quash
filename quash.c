@@ -126,7 +126,9 @@ int execCommand(char* cmd, char* args)
       if (errno == 2) {
         fprintf(stderr, "\n%s not found.\n", cmd);
       }
-      fprintf(stderr, "\nError execing %s. Error#%d\n", cmd, errno);
+      else {
+        fprintf(stderr, "\nError execing %s. Error#%d\n", cmd, errno);
+      }
       return -1;
     }
     return 0;
