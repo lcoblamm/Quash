@@ -143,8 +143,14 @@ int execCommand(char* cmd, char* args)
   return 0;
 }
 
+//i think this changes it i am not sure. 
 int cd(char* args) {
-  // TODO: fill in change directory code
+  if(args[1] == NULL){
+    fprintf(stderr, "Error: Expected argument to \"cd\"\n"); 
+  } 
+  else{
+     chdir(args[1]); 
+  } 
   return 0;
 }
 
