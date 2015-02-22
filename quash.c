@@ -4,9 +4,13 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <unistd.h>
 
-bool getCommand(char* cmd, char* args, cmdSize);
-void execCommand(char* cmd, char* args); 
+
+int getCommand(char* cmd, char* args, int cmdSize);
+int execCommand(char* cmd, char* args); 
 
 int main(int argc, char* argv[])
 {
@@ -14,12 +18,16 @@ int main(int argc, char* argv[])
   char* cmd = malloc(cmdSize);
   char* args = malloc(cmdSize);
 
-  while (true) {
+  while (1) {
     memset(cmd, '\0', cmdSize);
     memset(args, '\0', cmdSize);
     printf("> ");
     // read in input   
-    getCommand(cmd, args, cmdSize);
+    if (getCommand(cmd, args, cmdSize) != 0) {
+      // error running command
+      continue;
+    }
+    // run command
     execCommand(cmd, args);
   }
   free(cmd);
@@ -32,9 +40,9 @@ int main(int argc, char* argv[])
     will hold a null-terminated command
   @param arguments: [out] preallocated array of cmdSize 
     that will hold a null-terminated string of all arguments
-  @return: true if command was successfully read in, false otherwise
+  @return: 0 if command was successfully read in, -1 otherwise
 */
-bool getCommand(char* cmd, char* args, cmdSize)
+int getCommand(char* cmd, char* args, int cmdSize)
 {
   int index = 0;
   int c;
@@ -45,11 +53,11 @@ bool getCommand(char* cmd, char* args, cmdSize)
     if (c == EOF || c == '\n') {
       if (index == 0) {
 	// no command was entered
-	return false;
+	return -1;
       }
       // reached end of input, append null
       cmd[index] = '\0';
-      return true;
+      return 0;
     }
     if (c == ' ') {
       // reached end of command, insert null
@@ -65,15 +73,16 @@ bool getCommand(char* cmd, char* args, cmdSize)
       bufSize += bufSize;
       cmd = realloc(cmd, bufSize);
     }
-  } while (true);
+  } while (1);
+
   index = 0;
   bufSize = cmdSize;
   // read in arguments
   do {
-    c = getChar();
+    c = getchar();
     if (c == EOF || c == '\n') {
       args[index] = '\0';
-      return true;
+      return 0;
     }
     args[index] = c;
     
@@ -82,10 +91,34 @@ bool getCommand(char* cmd, char* args, cmdSize)
       bufSize += bufSize;
       args = realloc(args, bufSize);
     }
-  } while (true);
+  } while (1);
 }
 
-void execCommad(char* cmd, char* args) 
+/*
+  Executes command by starting child process
+  @param cmd: cmd to execute (null terminated)
+  @param args: all args to pass to command (null terminated)
+*/
+int execCommand(char* cmd, char* args) 
 {
-  // TODO: fork and execute command in child
+  int status;
+  pid_t pid;
+
+  pid = fork();
+  if (pid == 0) {
+    // child process
+    if (execlp(cmd, cmd, args, (char*) 0) < 0) {
+      fprintf(stderr, "\nError execing %s. Error#%d\n", cmd, errno);
+      return -1;
+    }
+    return 0;
+  }
+  else {
+    // parent process
+    if (waitpid(pid, &status, 0) == -1) {
+      fprintf(stderr, "\nError in child process %d. Error#%d\n", pid, errno);
+      return -1;
+    }
+  }
+  return 0;
 }
