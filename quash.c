@@ -12,6 +12,7 @@ int getCommand(char* cmd, char* args, int cmdSize);
 int execCommand(char* cmd, char* args); 
 int cd(char* args);
 int jobs();
+int set(char* args);
 
 int main(int argc, char* argv[])
 {
@@ -147,5 +148,10 @@ int cd(char* args) {
 
 int jobs() {
   // TODO: fill in code to print jobs
+  return 0;
+}
+
+int set(char* args) {
+  // TODO: fill in code to set up HOME/PATH variables
   return 0;
 }
