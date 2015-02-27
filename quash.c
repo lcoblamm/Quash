@@ -155,8 +155,8 @@ int cd(char* args) {
     fprintf(stderr, "Error: Expected argument to \"cd\"\n"); 
   } 
   else{ 
-	  if(chdir(args[1])!= 0){
-	     print("Error: Incorrect Path Name"); 
+	  if(chdir(args)!= 0){
+	     printf("Error: Incorrect Path Name"); 
 	  }
     } 
   
