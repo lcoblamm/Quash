@@ -19,11 +19,19 @@ int main(int argc, char* argv[])
   int cmdSize = 256;
   char* cmd = malloc(cmdSize);
   char* args = malloc(cmdSize);
-
+  char cwd[1024]; 
+  
   while (1) {
     memset(cmd, '\0', cmdSize);
     memset(args, '\0', cmdSize);
-    printf("> ");
+  
+    if(getcwd(cwd, sizeof(cwd)) != NULL){
+	printf(cwd);
+	printf(" > "); 
+    }	
+    else
+	perror("getcwd error"); 
+    
     // read in input   
     if (getCommand(cmd, args, cmdSize) != 0) {
       // error running command
@@ -143,12 +151,15 @@ int execCommand(char* cmd, char* args)
 
 //i think this changes it i am not sure. 
 int cd(char* args) {
-  if(args[1] == NULL){
+  if(args[1] == '\0'){
     fprintf(stderr, "Error: Expected argument to \"cd\"\n"); 
   } 
-  else{
-     chdir(args[1]); 
-  } 
+  else{ 
+	  if(chdir(args[1] != 0){
+	     print("Error: Incorrect Path Name"); 
+	  };
+    } 
+  
   return 0;
 }
 
