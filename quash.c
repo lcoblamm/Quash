@@ -8,121 +8,132 @@
 #include <errno.h>
 #include <unistd.h>
 
-int getCommand(char* cmd, char* args, int cmdSize);
-int execCommand(char* cmd, char* args); 
-int cd(char* args);
+int getCommand(char** cmd, int numArgs);
+int execCommand(char** cmd); 
+int cd(char** args);
 int jobs();
-int set(char* args);
+int set(char** args);
 
 int main(int argc, char* argv[])
 {
-  int cmdSize = 256;
-  char* cmd = malloc(cmdSize);
-  char* args = malloc(cmdSize);
+  int numArgs = 10;
+  char** cmd;
   char cwd[1024]; 
   
   while (1) {
-    memset(cmd, '\0', cmdSize);
-    memset(args, '\0', cmdSize);
+    cmd = malloc(numArgs * sizeof(char*));
   
     if(getcwd(cwd, sizeof(cwd)) != NULL){
-	printf(cwd);
-	printf(" > "); 
+      printf(cwd);
+      printf(" > "); 
     }	
     else
-	perror("getcwd error"); 
+	   perror("getcwd error"); 
     
     // read in input   
-    if (getCommand(cmd, args, cmdSize) != 0) {
+    if (getCommand(cmd, numArgs) != 0) {
       // error running command
       continue;
     }
-    if (strcmp(cmd, "exit") == 0 || strcmp(cmd, "quit") == 0) {
+    if (strcmp(cmd[0], "exit") == 0 || strcmp(cmd[0], "quit") == 0) {
       break;
     }
-    if (strcmp(cmd, "cd") == 0) {
-      cd(args);
+    if (strcmp(cmd[0], "cd") == 0) {
+      cd(cmd);
       continue;
     }
-    if (strcmp(cmd, "jobs") == 0) {
+    if (strcmp(cmd[0], "jobs") == 0) {
       jobs();
       continue;
     }
     // run command
-    execCommand(cmd, args);
+    execCommand(cmd);
+
+    for (int i = 0; i < numArgs; ++i) {
+      free(cmd[i]);
+    }
+    free(cmd);
   }
-  free(cmd);
-  free(args);
 
   return 0;
 }
 
 /*
   Reads input and parses into a command & its arguments
-  @param cmd: [out] preallocated array of cmdSize that
-    will hold a null-terminated command
-  @param arguments: [out] preallocated array of cmdSize 
-    that will hold a null-terminated string of all arguments
+  @param cmd: [in/out] preallocated char** of size numArgs, 
+    will hold command and its args on return with NULL as the final value
+  @param numArgs: [in] number of args in cmd 
   @return: 0 if command was successfully read in, -1 otherwise
 */
-int getCommand(char* cmd, char* args, int cmdSize)
+int getCommand(char** cmd, int numArgs)
 {
+  int cmdLength = 128;
+  char* unparsedCmd = malloc(cmdLength * sizeof(char));
+  if (!unparsedCmd) {
+    // Error in allocation
+    return -1;
+  }
+  
   int index = 0;
   int c;
-  int bufSize = cmdSize;
   // read in command
   do {
     c = getchar();
     if (c == EOF || c == '\n') {
       if (index == 0) {
-	// no command was entered
-	return -1;
+	       // no command was entered
+	       return -1;
       }
       // reached end of input, append null
-      cmd[index] = '\0';
-      return 0;
-    }
-    if (c == ' ') {
-      // reached end of command, insert null
-      // and start reading arguments
-      cmd[index] = '\0';
+      unparsedCmd[index] = '\0';
       break;
     }
-    cmd[index] = c;
+    unparsedCmd[index] = c;
     
     index++;
-    if (index >= bufSize) {
+    if (index >= cmdLength) {
       // allocate more space for the buffer
-      bufSize += bufSize;
-      cmd = realloc(cmd, bufSize);
+      cmdLength += cmdLength;
+      unparsedCmd = realloc(unparsedCmd, cmdLength * sizeof(char));
+      if (!unparsedCmd) {
+        // error in reallocation
+        return -1;
+      }
     }
   } while (1);
 
-  index = 0;
-  bufSize = cmdSize;
-  // read in arguments
-  do {
-    c = getchar();
-    if (c == EOF || c == '\n') {
-      args[index] = '\0';
-      return 0;
+  // parse command into invidual arguments
+  int argNum = 0;
+  char* arg = strtok(unparsedCmd, " ");
+  while (arg != NULL) {
+    cmd[argNum] = arg;
+    argNum++;
+
+    if (argNum >= numArgs) {
+      // need to reallocate, double size
+      numArgs += numArgs;
+      cmd = realloc(cmd, numArgs * sizeof(char*));
+      if (!cmd) {
+        // error in reallocations
+        return -1;
+      }
     }
-    args[index] = c;
-    
-    index++;
-    if (index >= bufSize) {
-      bufSize += bufSize;
-      args = realloc(args, bufSize);
-    }
-  } while (1);
+
+    arg = strtok(NULL, " ");
+  }
+  // add one last null pointer
+  cmd[argNum] = NULL;
+
+  free(unparsedCmd);
+  return 0;
 }
 
 /*
   Executes command by starting child process
-  @param cmd: cmd to execute (null terminated)
-  @param args: all args to pass to command (null terminated)
+  @param cmd: cmd with args to execute
+  @param numArgs: number of elements in cmd
 */
-int execCommand(char* cmd, char* args) 
+int execCommand(char** cmd) 
 {
   int status;
   pid_t pid;
@@ -130,12 +141,12 @@ int execCommand(char* cmd, char* args)
   pid = fork();
   if (pid == 0) {
     // child process
-    if (execlp(cmd, cmd, args, (char*) 0) < 0) {
+    if (execvp(cmd[0], cmd) < 0) {
       if (errno == 2) {
-        fprintf(stderr, "\n%s not found.\n", cmd);
+        fprintf(stderr, "\n%s not found.\n", cmd[0]);
       }
       else {
-        fprintf(stderr, "\nError execing %s. Error#%d\n", cmd, errno);
+        fprintf(stderr, "\nError execing %s. Error#%d\n", cmd[0], errno);
       }
       return -1;
     }
@@ -152,12 +163,12 @@ int execCommand(char* cmd, char* args)
 }
 
 //i think this changes it i am not sure. 
-int cd(char* args) {
+int cd(char** args) {
   if(args[1] == '\0'){
     fprintf(stderr, "Error: Expected argument to \"cd\"\n"); 
   } 
   else{ 
-	  if(chdir(args)!= 0){
+	  if(chdir(args[1])!= 0){
 	     printf("Error: Incorrect Path Name"); 
 	  }
     } 
@@ -170,7 +181,7 @@ int jobs() {
   return 0;
 }
 
-int set(char* args) {
+int set(char** args) {
   // TODO: fill in code to set up HOME/PATH variables
   return 0;
 }
