@@ -8,7 +8,7 @@
 #include <errno.h>
 #include <unistd.h>
 
-int getCommand(char** cmd, int numArgs);
+int getCommand(char*** cmd, int numArgs);
 int execCommand(char** cmd); 
 int cd(char** args);
 int jobs();
@@ -16,7 +16,7 @@ int set(char** args);
 
 int main(int argc, char* argv[])
 {
-  int numArgs = 10;
+  int numArgs = 1;
   char** cmd;
   char cwd[1024]; 
   
@@ -31,31 +31,28 @@ int main(int argc, char* argv[])
 	   perror("getcwd error"); 
     
     // read in input   
-    if (getCommand(cmd, numArgs) != 0) {
+    if (getCommand(&cmd, numArgs) != 0) {
       // error running command
       continue;
     }
     if (strcmp(cmd[0], "exit") == 0 || strcmp(cmd[0], "quit") == 0) {
-      break;
+      free(cmd);
+      return 0;
     }
     if (strcmp(cmd[0], "cd") == 0) {
       cd(cmd);
+      free(cmd);
       continue;
     }
     if (strcmp(cmd[0], "jobs") == 0) {
       jobs();
+      free(cmd);
       continue;
     }
     // run command
     execCommand(cmd);
-
-    for (int i = 0; i < numArgs; ++i) {
-      free(cmd[i]);
-    }
     free(cmd);
   }
-
-  return 0;
 }
 
 /*
@@ -65,7 +62,7 @@ int main(int argc, char* argv[])
   @param numArgs: [in] number of args in cmd 
   @return: 0 if command was successfully read in, -1 otherwise
 */
-int getCommand(char** cmd, int numArgs)
+int getCommand(char*** cmd, int numArgs)
 {
   int cmdLength = 128;
   char* unparsedCmd = malloc(cmdLength * sizeof(char));
@@ -106,14 +103,14 @@ int getCommand(char** cmd, int numArgs)
   int argNum = 0;
   char* arg = strtok(unparsedCmd, " ");
   while (arg != NULL) {
-    cmd[argNum] = arg;
+    (*cmd)[argNum] = arg;
     argNum++;
 
     if (argNum >= numArgs) {
       // need to reallocate, double size
-      numArgs += numArgs;
-      cmd = realloc(cmd, numArgs * sizeof(char*));
-      if (!cmd) {
+      numArgs *= 2;
+      *cmd = realloc(*cmd, numArgs * sizeof(char*));
+      if (!(*cmd)) {
         // error in reallocations
         return -1;
       }
@@ -122,7 +119,7 @@ int getCommand(char** cmd, int numArgs)
     arg = strtok(NULL, " ");
   }
   // add one last null pointer
-  cmd[argNum] = NULL;
+  (*cmd)[argNum] = NULL;
 
   free(unparsedCmd);
   return 0;
