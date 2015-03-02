@@ -2,6 +2,7 @@
   The shell will run from here
 */
 
+#define LINUX 1
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,12 +10,12 @@
 #include <unistd.h>
 
 int getCommand(char*** cmd, int numArgs);
-int execCommand(char** cmd); 
+int execCommand(char** cmd, char** envp); 
 int cd(char** args);
 int jobs();
 int set(char** args);
 
-int main(int argc, char* argv[])
+int main(int argc, char* argv[], char** envp)
 {
   int numArgs = 1;
   char** cmd;
@@ -49,8 +50,12 @@ int main(int argc, char* argv[])
       free(cmd);
       continue;
     }
+    if (strcmp(cmd[0], "set") == 0) {
+      set(cmd);
+      continue;
+    }
     // run command
-    execCommand(cmd);
+    execCommand(cmd, envp);
     free(cmd);
   }
 }
@@ -130,7 +135,7 @@ int getCommand(char*** cmd, int numArgs)
   @param cmd: cmd with args to execute
   @param numArgs: number of elements in cmd
 */
-int execCommand(char** cmd) 
+int execCommand(char** cmd, char** envp) 
 {
   int status;
   pid_t pid;
@@ -138,7 +143,11 @@ int execCommand(char** cmd)
   pid = fork();
   if (pid == 0) {
     // child process
-    if (execvp(cmd[0], cmd) < 0) {
+    #if LINUX
+    if (execvpe(cmd[0], cmd, envp) < 0) {
+    #else 
+    if (execvP(cmd[0], getenv("PATH"), cmd) < 0) {
+    #endif
       if (errno == 2) {
         fprintf(stderr, "\n%s not found.\n", cmd[0]);
       }
@@ -168,7 +177,7 @@ int cd(char** args) {
 	  if(chdir(args[1])!= 0){
 	     printf("Error: Incorrect Path Name"); 
 	  }
-    } 
+  } 
   
   return 0;
 }
@@ -179,6 +188,31 @@ int jobs() {
 }
 
 int set(char** args) {
-  // TODO: fill in code to set up HOME/PATH variables
+  if (args[1] == NULL) {
+    // print home & path environment variables
+    char* path = getenv("PATH");
+    char* home = getenv("HOME");
+    printf("PATH:%s\n", path);
+    printf("HOME:%s\n", home);
+  }
+  else {
+    // figure out whether setting path or home
+    char* variable = strtok(args[1], "=");
+    if (variable == NULL) {
+      // TODO: maybe set an error because they used the command wrong?
+    }
+    else if (strcmp(variable, "PATH") == 0) {
+      char* newPath = strtok(NULL, " ");
+      if (newPath != NULL) {
+        setenv(variable, newPath, 1);
+      }
+    }
+    else if (strcmp(variable, "HOME") == 0) {
+      char* newHome = strtok(NULL, " ");
+      if (newHome != NULL) {
+        setenv(variable, newHome, 1);
+      }
+    }
+  }
   return 0;
 }
