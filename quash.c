@@ -2,7 +2,6 @@
   The shell will run from here
 */
 
-#define LINUX 0
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +19,7 @@ int main(int argc, char* argv[], char** envp)
   int numArgs = 1;
   char** cmd;
   char cwd[1024]; 
+  int ret = 0;
   
   while (1) {
     cmd = malloc(numArgs * sizeof(char*));
@@ -29,10 +29,11 @@ int main(int argc, char* argv[], char** envp)
       printf(" > "); 
     }	
     else
-	   perror("getcwd error"); 
+	   perror("getcwd error: "); 
     
-    // read in input   
-    if (getCommand(&cmd, numArgs) != 0) {
+    // read in input 
+    ret = getCommand(&cmd, numArgs);
+    if (ret != 0) {
       // error running command
       continue;
     }
@@ -41,17 +42,17 @@ int main(int argc, char* argv[], char** envp)
       return 0;
     }
     if (strcmp(cmd[0], "cd") == 0) {
-      cd(cmd);
+      ret = cd(cmd);
       free(cmd);
       continue;
     }
     if (strcmp(cmd[0], "jobs") == 0) {
-      jobs();
+      ret = jobs();
       free(cmd);
       continue;
     }
     if (strcmp(cmd[0], "set") == 0) {
-      set(cmd);
+      ret = set(cmd);
       free(cmd);
       continue;
     }
@@ -66,15 +67,15 @@ int main(int argc, char* argv[], char** envp)
   @param cmd: [in/out] preallocated char** of size numArgs, 
     will hold command and its args on return with NULL as the final value
   @param numArgs: [in] number of args in cmd 
-  @return: 0 if command was successfully read in, -1 otherwise
+  @return: 0 if command was successfully read in, non-zero for error
 */
 int getCommand(char*** cmd, int numArgs)
 {
   int cmdLength = 128;
   char* unparsedCmd = malloc(cmdLength * sizeof(char));
   if (!unparsedCmd) {
-    // Error in allocation
-    return -1;
+    fprintf(stderr, "getCommand allocation error\n");
+    return 2;
   }
   
   int index = 0;
@@ -85,7 +86,7 @@ int getCommand(char*** cmd, int numArgs)
     if (c == EOF || c == '\n') {
       if (index == 0) {
 	       // no command was entered
-	       return -1;
+	       return 1;
       }
       // reached end of input, append null
       unparsedCmd[index] = '\0';
@@ -100,7 +101,8 @@ int getCommand(char*** cmd, int numArgs)
       unparsedCmd = realloc(unparsedCmd, cmdLength * sizeof(char));
       if (!unparsedCmd) {
         // error in reallocation
-        return -1;
+        fprintf(stderr, "getCommand allocation error\n");
+        return 2;
       }
     }
   } while (1);
@@ -118,7 +120,8 @@ int getCommand(char*** cmd, int numArgs)
       *cmd = realloc(*cmd, numArgs * sizeof(char*));
       if (!(*cmd)) {
         // error in reallocations
-        return -1;
+        fprintf(stderr, "getCommand allocation error\n");
+        return 2;
       }
     }
 
@@ -135,7 +138,7 @@ int getCommand(char*** cmd, int numArgs)
   Executes command by starting child process
   @param cmd: cmd with args to execute
   @param envp: array of environment variables to pass to command
-  @param numArgs: number of elements in cmd
+  @return: 0 for success, non-zero for failure
 */
 int execCommand(char** cmd, char** envp) 
 {
@@ -145,9 +148,9 @@ int execCommand(char** cmd, char** envp)
   pid = fork();
   if (pid == 0) {
     // child process
-    #if LINUX
+    #ifdef __linux__
     if (execvpe(cmd[0], cmd, envp) < 0) {
-    #else 
+    #elif __APPLE__
     if (execvP(cmd[0], getenv("PATH"), cmd) < 0) {
     #endif
       if (errno == 2) {
@@ -161,12 +164,15 @@ int execCommand(char** cmd, char** envp)
   }
   else {
     // parent process
-    printf("Waiting for child process %d\n", pid);
     if (waitpid(pid, &status, 0) == -1) {
       fprintf(stderr, "\nError in child process %d. Error#%d\n", pid, errno);
-      return -1;
+      return 1;
     }
-    printf("Child process %d finished\n", pid);
+    if (WIFEXITED(status)) {
+      if (WEXITSTATUS(status) == EXIT_FAILURE) {
+        return 2;
+      }
+    }
   }
   return 0;
 }
@@ -178,10 +184,10 @@ int cd(char** args) {
   } 
   else{ 
 	  if(chdir(args[1])!= 0){
-	     printf("Error: Incorrect Path Name"); 
+	     printf("cd: %s: No such file or directory\n", args[1]); 
 	  }
+    return 1;
   } 
-  
   return 0;
 }
 
@@ -210,19 +216,28 @@ int set(char** args) {
     // figure out whether setting path or home
     char* variable = strtok(args[1], "=");
     if (variable == NULL) {
-      return -1;
+      fprintf(stderr, "Usage: set <envVariable>=<newValue>\n");
+      return 1;
     }
     else if (strcmp(variable, "PATH") == 0) {
-      char* newPath = strtok(NULL, " ");
-      if (newPath != NULL) {
-        setenv(variable, newPath, 1);
+      char* newPath = strtok(NULL, "=");
+      if (newPath == NULL) {
+        fprintf(stderr, "Usage: set <envVariable>=<newValue>\n");
+        return 1;
       }
+      setenv(variable, newPath, 1);
     }
     else if (strcmp(variable, "HOME") == 0) {
-      char* newHome = strtok(NULL, " ");
-      if (newHome != NULL) {
-        setenv(variable, newHome, 1);
+      char* newHome = strtok(NULL, "=");
+      if (newHome == NULL) {
+                fprintf(stderr, "Usage: set <envVariable>=<newValue>\n");
+        return 1;
       }
+      setenv(variable, newHome, 1);
+    }
+    else {
+      fprintf(stderr, "set can be used for PATH or HOME\n");
+      return 1;
     }
   }
   return 0;
