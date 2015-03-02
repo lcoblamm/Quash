@@ -2,7 +2,7 @@
   The shell will run from here
 */
 
-#define LINUX 1
+#define LINUX 0
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,6 +52,7 @@ int main(int argc, char* argv[], char** envp)
     }
     if (strcmp(cmd[0], "set") == 0) {
       set(cmd);
+      free(cmd);
       continue;
     }
     // run command
@@ -155,16 +156,17 @@ int execCommand(char** cmd, char** envp)
       else {
         fprintf(stderr, "\nError execing %s. Error#%d\n", cmd[0], errno);
       }
-      return -1;
+      exit(EXIT_FAILURE);
     }
-    return 0;
   }
   else {
     // parent process
+    printf("Waiting for child process %d\n", pid);
     if (waitpid(pid, &status, 0) == -1) {
       fprintf(stderr, "\nError in child process %d. Error#%d\n", pid, errno);
       return -1;
     }
+    printf("Child process %d finished\n", pid);
   }
   return 0;
 }
