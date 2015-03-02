@@ -191,8 +191,20 @@ int cd(char** args) {
   return 0;
 }
 
+struct job{
+	int pid;
+	int jobid;
+	char* cmd; 
+} ;
+struct job jobArray[100]; 
+int jobCount = 0; 
+
 int jobs() {
-  // TODO: fill in code to print jobs
+	int i;
+  	for (i = 0; i < jobCount; i++) {
+		printf("[", jobArray[i].jobid, "]", " ", jobArray[i].pid, " ", jobArray[i].cmd, "\n");  
+	} 
+
   return 0;
 }
 
