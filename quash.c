@@ -133,6 +133,7 @@ int getCommand(char*** cmd, int numArgs)
 /*
   Executes command by starting child process
   @param cmd: cmd with args to execute
+  @param envp: array of environment variables to pass to command
   @param numArgs: number of elements in cmd
 */
 int execCommand(char** cmd, char** envp) 
@@ -187,6 +188,14 @@ int jobs() {
   return 0;
 }
 
+/*
+  Prints or sets PATH & HOME variables
+  @param args: command from commandline
+  @return: 0 if successful
+
+  Note: if set is called with no additional
+  args, path and home will be printed
+*/
 int set(char** args) {
   if (args[1] == NULL) {
     // print home & path environment variables
@@ -199,7 +208,7 @@ int set(char** args) {
     // figure out whether setting path or home
     char* variable = strtok(args[1], "=");
     if (variable == NULL) {
-      // TODO: maybe set an error because they used the command wrong?
+      return -1;
     }
     else if (strcmp(variable, "PATH") == 0) {
       char* newPath = strtok(NULL, " ");
