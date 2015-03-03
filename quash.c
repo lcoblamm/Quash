@@ -22,7 +22,7 @@ int main(int argc, char* argv[], char** envp)
   int backgroundFlag = 0; 
   
   while (1) {
-    if(getcwd(cwd, sizeof(cwd)) != NULL) {
+    if(getcwd(cwd, sizeof(cwd)) != 0) {
       printf(cwd);
       printf(" > "); 
     }	
@@ -39,7 +39,7 @@ int main(int argc, char* argv[], char** envp)
     }
    
     char* background = strchr(cmd[0], '&');
-    if (background != NULL) {
+    if (background != 0) {
 		  backgroundFlag = 1; 
 		  cmd[0]++;
     } 
@@ -118,7 +118,7 @@ int getCommand(char*** cmd, int numArgs)
   // parse command into invidual arguments
   int argNum = 0;
   char* arg = strtok(unparsedCmd, " ");
-  while (arg != NULL) {
+  while (arg != 0) {
     (*cmd)[argNum] = arg;
     argNum++;
 
@@ -136,7 +136,7 @@ int getCommand(char*** cmd, int numArgs)
     arg = strtok(NULL, " ");
   }
   // add one last null pointer
-  (*cmd)[argNum] = NULL;
+  (*cmd)[argNum] = 0;
 
   free(unparsedCmd);
   return 0;
