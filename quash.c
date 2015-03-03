@@ -10,6 +10,7 @@
 
 int getCommand(char*** cmd, int numArgs);
 int execCommand(char** cmd, char** envp, int bgFlag); 
+int execPipedCommand(char** firstCmd, char** secondCmd, char**envp);
 int cd(char** args);
 int jobs();
 int set(char** args);
@@ -34,43 +35,64 @@ int main(int argc, char* argv[], char** envp)
     char** cmd = malloc(numArgs * sizeof(char*));
     ret = getCommand(&cmd, numArgs);
 
-     // need to find way to remove final argument to this case. Might move to get command. 
-    //char* background = strchr(cmd[numArgs - 1], '&'); 
- 
-
     if (ret != 0) {
       // error running command
       continue;
     }
-    /*
+
+    // need to find way to remove final argument to this case. Might move to get command. 
+    //char* background = strchr(cmd[numArgs - 1], '&'); 
+    
     char* background = strchr(cmd[0], '&');
     if (background != 0) {
 		  backgroundFlag = 1; 
 		  cmd[0]++;
     } 
     else backgroundFlag = 0; 
-    */
+
+    // search command for pipe 
+    int pipeFlag = 0;
+    int i = 0;
+    while (cmd[i] != 0) {
+      if (strcmp(cmd[i], "|") == 0) {
+        pipeFlag = 1;
+      }
+      i++;
+    }
+    
     if (strcmp(cmd[0], "exit") == 0 || strcmp(cmd[0], "quit") == 0) {
+      // free memory and exit
+      int i = 0;
+      while (cmd[i] != 0) {
+        free(cmd[i]);
+        i++;
+      }
       free(cmd);
       return 0;
     }
-    if (strcmp(cmd[0], "cd") == 0) {
+    else if (strcmp(cmd[0], "cd") == 0) {
       ret = cd(cmd);
-      free(cmd);
-      continue;
     }
-    if (strcmp(cmd[0], "jobs") == 0) {
+    else if (strcmp(cmd[0], "jobs") == 0) {
       ret = jobs();
-      free(cmd);
-      continue;
     }
-    if (strcmp(cmd[0], "set") == 0) {
+    else if (strcmp(cmd[0], "set") == 0) {
       ret = set(cmd);
-      free(cmd);
-      continue;
     }
-    // run command
-    execCommand(cmd, envp, backgroundFlag);
+    else if (pipeFlag == 1) {
+      // parse into pieces between pipes
+      // call execPipedCommand with array of commands and number of commands
+    }
+    else {
+      execCommand(cmd, envp, backgroundFlag);
+    }
+
+    // free memory before getting next command
+    i = 0;
+    while (cmd[i] != 0) {
+      free(cmd[i]);
+      i++;
+    }
     free(cmd);
   }
 }
@@ -105,6 +127,7 @@ int getCommand(char*** cmd, int numArgs)
       unparsedCmd[index] = '\0';
       break;
     }
+    // add character to command
     unparsedCmd[index] = c;
     
     index++;
@@ -124,14 +147,16 @@ int getCommand(char*** cmd, int numArgs)
   int argNum = 0;
   char* arg = strtok(unparsedCmd, " ");
   while (arg != 0) {
+    // allocate memory for string storage
     (*cmd)[argNum] = malloc((strlen(arg) + 1) * sizeof(char));
     memset((*cmd)[argNum], '\0', (strlen(arg) + 1));
+    // NOTE: need to copy because unparsedCmd goes out of scope
     strcpy((*cmd)[argNum], arg);
     argNum++;
     if (argNum >= numArgs) {
       // need to reallocate, double size
       numArgs *= 2;
-      *cmd = realloc(*cmd, numArgs * sizeof(char*));
+      *cmd = realloc(*cmd, (numArgs) * sizeof(char*));
       if (!(*cmd)) {
         // error in reallocations
         fprintf(stderr, "getCommand allocation error\n");
@@ -144,6 +169,8 @@ int getCommand(char*** cmd, int numArgs)
   // add one last null pointer
   (*cmd)[argNum] = 0;
 
+  free(unparsedCmd);
+
   return 0;
 }
 
@@ -155,37 +182,123 @@ int getCommand(char*** cmd, int numArgs)
 */
 int execCommand(char** cmd, char** envp, int bgFlag) 
 {
- if(bgFlag == 0){
-  int status;
-  pid_t pid;
+  if(bgFlag == 0) {
+    int status;
+    pid_t pid;
 
-  pid = fork();
-  if (pid == 0) {
-    // child process
+    pid = fork();
+    if (pid == 0) {
+      // child process
+      #ifdef __linux__
+      if (execvpe(cmd[0], cmd, envp) < 0) {
+      #endif
+      #ifdef __APPLE__
+      if (execvP(cmd[0], getenv("PATH"), cmd) < 0) {
+      #endif
+        if (errno == 2) {
+          fprintf(stderr, "\n%s not found.\n", cmd[0]);
+        }
+        else {
+          fprintf(stderr, "\nError execing %s. Error#%d\n", cmd[0], errno);
+        }
+        exit(EXIT_FAILURE);
+      }
+      exit(0);
+    }
+    else {
+      // parent process
+      if (waitpid(pid, &status, 0) == -1) {
+        fprintf(stderr, "\nError in child process %d. Error#%d\n", pid, errno);
+        return 1;
+      }
+      if (WIFEXITED(status)) {
+        if (WEXITSTATUS(status) == EXIT_FAILURE) {
+          return 2;
+        }
+      }
+    }
+  }
+}
+
+// would only work for single pipe, need to change to work with multiple pipes
+int execPipedCommand(char** firstCmd, char** secondCmd, char**envp)
+{
+  int status;
+  pid_t pid1;
+  pid_t pid2;
+  int pipefd[2];
+
+  pipe(pipefd);
+
+  pid1 = fork();
+  if(pid1 == 0) {
+    // First child
+
+    //set up pipe for stdout
+    dup2(pipefd[1], STDOUT_FILENO);
+    close(pipefd[0]);
+
+    // exec command
     #ifdef __linux__
-    if (execvpe(cmd[0], cmd, envp) < 0) {
+    if (execvpe(firstCmd[0], firstCmd, envp) < 0) {
     #elif __APPLE__
-    if (execvP(cmd[0], getenv("PATH"), cmd) < 0) {
+    if (execvP(firstCmd[0], getenv("PATH"), firstCmd) < 0) {
     #endif
       if (errno == 2) {
-        fprintf(stderr, "\n%s not found.\n", cmd[0]);
+        fprintf(stderr, "\n%s not found.\n", firstCmd[0]);
       }
       else {
-        fprintf(stderr, "\nError execing %s. Error#%d\n", cmd[0], errno);
+        fprintf(stderr, "\nError execing %s. Error#%d\n", firstCmd[0], errno);
       }
       exit(EXIT_FAILURE);
     }
+    exit(0);
   }
-  else {
-    // parent process
-    if (waitpid(pid, &status, 0) == -1) {
-      fprintf(stderr, "\nError in child process %d. Error#%d\n", pid, errno);
-      return 1;
-    }
-    if (WIFEXITED(status)) {
-      if (WEXITSTATUS(status) == EXIT_FAILURE) {
-        return 2;
+
+  pid2 = fork();
+  if(pid2 == 0) {
+    //Second child
+    //set up pipe for stdin
+    dup2(pipefd[0], STDIN_FILENO);
+    close(pipefd[1]);
+
+    //exec command
+    #ifdef __linux__
+    if (execvpe(secondCmd[0], secondCmd, envp) < 0) {
+    #elif __APPLE__
+    if (execvP(secondCmd[0], getenv("PATH"), secondCmd) < 0) {
+    #endif
+      if (errno == 2) {
+        fprintf(stderr, "\n%s not found.\n", secondCmd[0]);
       }
+      else {
+        fprintf(stderr, "\nError execing %s. Error#%d\n", secondCmd[0], errno);
+      }
+      exit(EXIT_FAILURE);
+    }
+    exit(0);
+  }
+
+  close(pipefd[0]);
+  close(pipefd[1]);
+
+  if (waitpid(pid1, &status, 0) == -1) {
+    fprintf(stderr, "\nError in child process %d. Error#%d\n", pid1, errno);
+    return 1;
+  }
+  if (WIFEXITED(status)) {
+    if (WEXITSTATUS(status) == EXIT_FAILURE) {
+      return 2;
+    }
+  }
+
+  if (waitpid(pid2, &status, 0) == -1) {
+    fprintf(stderr, "\nError in child process %d. Error#%d\n", pid2, errno);
+    return 1;
+  }
+  if (WIFEXITED(status)) {
+    if (WEXITSTATUS(status) == EXIT_FAILURE) {
+      return 2;
     }
   }
 }
@@ -228,7 +341,7 @@ else {
       }
     }
   } */
-}
+
 
 //i think this changes it i am not sure. 
 int cd(char** args) {
@@ -244,7 +357,7 @@ int cd(char** args) {
   return 0;
 }
 
-struct job{
+struct job {
 	int pid;
 	int jobid;
 	char* cmd; 
