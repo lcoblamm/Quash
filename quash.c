@@ -14,35 +14,42 @@ int cd(char** args);
 int jobs();
 int set(char** args);
 
-
 int main(int argc, char* argv[], char** envp)
 {
   int numArgs = 1;
-  char** cmd;
   char cwd[1024]; 
   int ret = 0;
   int backgroundFlag = 0; 
   
   while (1) {
-    cmd = malloc(numArgs * sizeof(char*));
-  
-    if(getcwd(cwd, sizeof(cwd)) != NULL){
+    if(getcwd(cwd, sizeof(cwd)) != NULL) {
       printf(cwd);
       printf(" > "); 
     }	
-    else
+    else {
 	   perror("getcwd error: "); 
+    }
     
     // read in input 
+    char** cmd = malloc(numArgs * sizeof(char*));
     ret = getCommand(&cmd, numArgs);
-    
+
      // need to find way to remove final argument to this case. Might move to get command. 
     //char* background = strchr(cmd[numArgs - 1], '&'); 
  
+
     if (ret != 0) {
       // error running command
       continue;
     }
+   
+    char* background = strchr(cmd[0], '&');
+    if (background != NULL) {
+		  backgroundFlag = 1; 
+		  cmd[0]++;
+    } 
+    else backgroundFlag = 0; 
+
     if (strcmp(cmd[0], "exit") == 0 || strcmp(cmd[0], "quit") == 0) {
       free(cmd);
       return 0;
@@ -63,7 +70,7 @@ int main(int argc, char* argv[], char** envp)
       continue;
     }
     // run command
-   execCommand(cmd, envp, backgroundFlag);
+    execCommand(cmd, envp, backgroundFlag);
     free(cmd);
   }
 }
