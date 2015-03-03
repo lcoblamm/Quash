@@ -9,10 +9,11 @@
 #include <unistd.h>
 
 int getCommand(char*** cmd, int numArgs);
-int execCommand(char** cmd, char** envp); 
+int execCommand(char** cmd, char** envp, int bgFlag); 
 int cd(char** args);
 int jobs();
 int set(char** args);
+
 
 int main(int argc, char* argv[], char** envp)
 {
@@ -20,6 +21,7 @@ int main(int argc, char* argv[], char** envp)
   char** cmd;
   char cwd[1024]; 
   int ret = 0;
+  int backgroundFlag = 0; 
   
   while (1) {
     cmd = malloc(numArgs * sizeof(char*));
@@ -33,6 +35,14 @@ int main(int argc, char* argv[], char** envp)
     
     // read in input 
     ret = getCommand(&cmd, numArgs);
+   
+    char* background = strchr(cmd[0], '&');
+    if(background != NULL)
+	{
+		backgroundFlag = 1; 
+		cmd[0]++;
+	} 
+    else backgroundFlag = 0; 
     if (ret != 0) {
       // error running command
       continue;
@@ -57,7 +67,7 @@ int main(int argc, char* argv[], char** envp)
       continue;
     }
     // run command
-    execCommand(cmd, envp);
+   execCommand(cmd, envp, backgroundFlag);
     free(cmd);
   }
 }
@@ -140,8 +150,10 @@ int getCommand(char*** cmd, int numArgs)
   @param envp: array of environment variables to pass to command
   @return: 0 for success, non-zero for failure
 */
-int execCommand(char** cmd, char** envp) 
+int execCommand(char** cmd, char** envp, int bgFlag) 
 {
+  if(bgFlag == 0){
+
   int status;
   pid_t pid;
 
@@ -174,6 +186,13 @@ int execCommand(char** cmd, char** envp)
       }
     }
   }
+
+  }
+
+  else if(bgFlag == 1){
+
+
+  } 
   return 0;
 }
 
