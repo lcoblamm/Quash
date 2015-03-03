@@ -122,9 +122,9 @@ int getCommand(char*** cmd, int numArgs)
 
   // parse command into invidual arguments
   int argNum = 0;
-  char* arg = strtok(unparsedCmd, " ");
+  char* arg = strtok(unparsedCpy, " ");
   while (arg != 0) {
-    (*cmd)[argNum] = arg;
+    memcpy((*cmd)[argNum], arg, strlen(arg));
     argNum++;
     if (argNum >= numArgs) {
       // need to reallocate, double size
@@ -137,12 +137,11 @@ int getCommand(char*** cmd, int numArgs)
       }
     }
 
-    arg = strtok(NULL, " ");
+    arg = strtok(0, " ");
   }
   // add one last null pointer
   (*cmd)[argNum] = 0;
 
-  free(unparsedCmd);
   return 0;
 }
 
@@ -187,8 +186,7 @@ int execCommand(char** cmd, char** envp, int bgFlag)
       }
     }
   }
-
-  }
+}
 
   /*if(bgFlag == 1){
   int status;
@@ -228,8 +226,6 @@ else {
       }
     }
   } */
-	}
-  return 0;
 }
 
 //i think this changes it i am not sure. 
