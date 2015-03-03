@@ -35,14 +35,10 @@ int main(int argc, char* argv[], char** envp)
     
     // read in input 
     ret = getCommand(&cmd, numArgs);
-   
-    char* background = strchr(cmd[0], '&');
-    if(background != NULL)
-	{
-		backgroundFlag = 1; 
-		cmd[0]++;
-	} 
-    else backgroundFlag = 0; 
+    
+     // need to find way to remove final argument to this case. Might move to get command. 
+    //char* background = strchr(cmd[numArgs - 1], '&'); 
+ 
     if (ret != 0) {
       // error running command
       continue;
@@ -123,7 +119,6 @@ int getCommand(char*** cmd, int numArgs)
   while (arg != NULL) {
     (*cmd)[argNum] = arg;
     argNum++;
-
     if (argNum >= numArgs) {
       // need to reallocate, double size
       numArgs *= 2;
@@ -152,8 +147,7 @@ int getCommand(char*** cmd, int numArgs)
 */
 int execCommand(char** cmd, char** envp, int bgFlag) 
 {
-  if(bgFlag == 0){
-
+ if(bgFlag == 0){
   int status;
   pid_t pid;
 
@@ -189,10 +183,45 @@ int execCommand(char** cmd, char** envp, int bgFlag)
 
   }
 
-  else if(bgFlag == 1){
+  /*if(bgFlag == 1){
+  int status;
+  pid_t pid;
 
-
-  } 
+  pid = fork();
+  if (pid == 0) {
+    // child process
+	printf("[",jobcount,"] PID running in background");
+    #ifdef __linux__
+    if (execvpe(cmd[0], cmd, envp) < 0) {
+    #elif __APPLE__
+    if (execvP(cmd[0], getenv("PATH"), cmd) < 0) {
+    #endif
+      if (errno == 2) {
+        fprintf(stderr, "\n%s not found.\n", cmd[0]);
+      }
+      else {
+        fprintf(stderr, "\nError execing %s. Error#%d\n", cmd[0], errno);
+      }
+		printf("[",jobcount"]", PID finished", cmd); 
+      exit(EXIT_FAILURE);
+    }
+  }
+	
+else {
+    // parent process	
+	// the goal of this is to not wait for the child. Probably needs to be polished. 
+	jobCount++;
+	jobArray[jobCount].pid = pid;
+	jobArray[jobCount].jobid = jobCount;
+	jobArray[jobCount].cmd = cmd; 
+   while (waitpid(pid_1,NULL, WEXITED|WNOHANG)> 0) { }
+ //   if (WIFEXITED(status)) {
+   //   if (WEXITSTATUS(status) == EXIT_FAILURE) {
+       // return 2;
+      }
+    }
+  } */
+	}
   return 0;
 }
 
