@@ -42,14 +42,14 @@ int main(int argc, char* argv[], char** envp)
       // error running command
       continue;
     }
-   
+    /*
     char* background = strchr(cmd[0], '&');
     if (background != 0) {
 		  backgroundFlag = 1; 
 		  cmd[0]++;
     } 
     else backgroundFlag = 0; 
-
+    */
     if (strcmp(cmd[0], "exit") == 0 || strcmp(cmd[0], "quit") == 0) {
       free(cmd);
       return 0;
@@ -122,9 +122,11 @@ int getCommand(char*** cmd, int numArgs)
 
   // parse command into invidual arguments
   int argNum = 0;
-  char* arg = strtok(unparsedCpy, " ");
+  char* arg = strtok(unparsedCmd, " ");
   while (arg != 0) {
-    memcpy((*cmd)[argNum], arg, strlen(arg));
+    (*cmd)[argNum] = malloc((strlen(arg) + 1) * sizeof(char));
+    memset((*cmd)[argNum], '\0', (strlen(arg) + 1));
+    strcpy((*cmd)[argNum], arg);
     argNum++;
     if (argNum >= numArgs) {
       // need to reallocate, double size
