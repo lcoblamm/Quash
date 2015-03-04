@@ -8,9 +8,10 @@
 #include <errno.h>
 #include <unistd.h>
 
-int getCommand(char*** cmd, int numArgs);
+int getCommand(char*** cmd, int* numArgs);
+int unpipeCommand(char** cmd, char*** unpiped[], int* numCmds);
 int execCommand(char** cmd, char** envp, int bgFlag); 
-int execPipedCommand(char** firstCmd, char** secondCmd, char**envp);
+int execPipedCommand(char*** cmdSet, int numCmds, char**envp);
 int cd(char** args);
 int jobs();
 int set(char** args);
@@ -33,7 +34,7 @@ int main(int argc, char* argv[], char** envp)
     
     // read in input 
     char** cmd = malloc(numArgs * sizeof(char*));
-    ret = getCommand(&cmd, numArgs);
+    ret = getCommand(&cmd, &numArgs);
 
     if (ret != 0) {
       // error running command
@@ -81,7 +82,12 @@ int main(int argc, char* argv[], char** envp)
     }
     else if (pipeFlag == 1) {
       // parse into pieces between pipes
+      char*** unpipedCmds = malloc(numArgs * sizeof(char**));
+      int numCmds;
+      ret = unpipeCommand(cmd, &unpipedCmds, &numCmds);
       // call execPipedCommand with array of commands and number of commands
+      ret = execPipedCommand(unpipedCmds, numCmds, envp);
+      // TODO: free unpipedCmds
     }
     else {
       execCommand(cmd, envp, backgroundFlag);
@@ -104,7 +110,7 @@ int main(int argc, char* argv[], char** envp)
   @param numArgs: [in] number of args in cmd 
   @return: 0 if command was successfully read in, non-zero for error
 */
-int getCommand(char*** cmd, int numArgs)
+int getCommand(char*** cmd, int* numArgs)
 {
   int cmdLength = 128;
   char* unparsedCmd = malloc(cmdLength * sizeof(char));
@@ -153,10 +159,10 @@ int getCommand(char*** cmd, int numArgs)
     // NOTE: need to copy because unparsedCmd goes out of scope
     strcpy((*cmd)[argNum], arg);
     argNum++;
-    if (argNum >= numArgs) {
+    if (argNum >= *numArgs) {
       // need to reallocate, double size
-      numArgs *= 2;
-      *cmd = realloc(*cmd, (numArgs) * sizeof(char*));
+      *numArgs *= 2;
+      *cmd = realloc(*cmd, (*numArgs) * sizeof(char*));
       if (!(*cmd)) {
         // error in reallocations
         fprintf(stderr, "getCommand allocation error\n");
@@ -171,6 +177,61 @@ int getCommand(char*** cmd, int numArgs)
 
   free(unparsedCmd);
 
+  return 0;
+}
+
+/*
+  Removes pipes from command and splits into separate commands
+  @param cmd: [in] command to remove pipes from
+  @param unpiped: [out] array of command vectors
+  @param numCmds [out] number of separate commands
+  @return: 0 for success
+*/
+int unpipeCommand(char** cmd, char*** unpiped[], int* numCmds)
+{
+  int lastIndex = 0;
+  int index = 0;
+  int unpipedIndex = 0;
+  (*numCmds) = 0;
+  // read each argument of command
+  while (cmd[index] != 0) {
+    if (strcmp(cmd[index], "|") == 0) {
+      // allocate memory for command
+      (*unpiped)[unpipedIndex] = malloc(((index - lastIndex) + 1) * sizeof(char*));
+      memset((*unpiped)[unpipedIndex], '\0', ((index - lastIndex) + 1));
+
+      int unpipedStrIdx = 0;
+      // copy each string up to pipe into command vector of unpiped
+      for(; lastIndex < index; ++lastIndex, ++unpipedStrIdx) {
+        // allocate memory for string in command
+        (*unpiped)[unpipedIndex][unpipedStrIdx] = malloc((strlen(cmd[lastIndex]) + 1) * sizeof(char));
+        memset((*unpiped)[unpipedIndex][unpipedStrIdx], '\0', (strlen(cmd[lastIndex]) + 1));
+        // copy string 
+        strcpy((*unpiped)[unpipedIndex][unpipedStrIdx], cmd[lastIndex]);
+      }
+      (*unpiped)[unpipedIndex][unpipedStrIdx] = 0;
+      lastIndex = index + 1;
+      unpipedIndex++;
+      (*numCmds)++;
+    }
+    index++;
+  }
+  // copy last command
+  // allocate memory for command
+  (*unpiped)[unpipedIndex] = malloc((index - lastIndex + 1) * sizeof(char*));
+  memset((*unpiped)[unpipedIndex], '\0', (index - lastIndex + 1));
+
+  int unpipedStrIdx = 0;
+  // copy each string up to pipe into command vector of unpiped
+  for(; lastIndex < index; ++lastIndex, ++unpipedStrIdx) {
+    // allocate memory for string in command
+    (*unpiped)[unpipedIndex][unpipedStrIdx] = malloc((strlen(cmd[lastIndex]) + 1) * sizeof(char));
+    memset((*unpiped)[unpipedIndex][unpipedStrIdx], '\0', (strlen(cmd[lastIndex]) + 1));
+    // copy string 
+    strcpy((*unpiped)[unpipedIndex][unpipedStrIdx], cmd[lastIndex]);
+  }
+  (*unpiped)[unpipedIndex][unpipedStrIdx] = 0;
+  (*numCmds)++;
   return 0;
 }
 
@@ -218,90 +279,9 @@ int execCommand(char** cmd, char** envp, int bgFlag)
       }
     }
   }
+  return 0;
 }
 
-// would only work for single pipe, need to change to work with multiple pipes
-int execPipedCommand(char** firstCmd, char** secondCmd, char**envp)
-{
-  int status;
-  pid_t pid1;
-  pid_t pid2;
-  int pipefd[2];
-
-  pipe(pipefd);
-
-  pid1 = fork();
-  if(pid1 == 0) {
-    // First child
-
-    //set up pipe for stdout
-    dup2(pipefd[1], STDOUT_FILENO);
-    close(pipefd[0]);
-
-    // exec command
-    #ifdef __linux__
-    if (execvpe(firstCmd[0], firstCmd, envp) < 0) {
-    #elif __APPLE__
-    if (execvP(firstCmd[0], getenv("PATH"), firstCmd) < 0) {
-    #endif
-      if (errno == 2) {
-        fprintf(stderr, "\n%s not found.\n", firstCmd[0]);
-      }
-      else {
-        fprintf(stderr, "\nError execing %s. Error#%d\n", firstCmd[0], errno);
-      }
-      exit(EXIT_FAILURE);
-    }
-    exit(0);
-  }
-
-  pid2 = fork();
-  if(pid2 == 0) {
-    //Second child
-    //set up pipe for stdin
-    dup2(pipefd[0], STDIN_FILENO);
-    close(pipefd[1]);
-
-    //exec command
-    #ifdef __linux__
-    if (execvpe(secondCmd[0], secondCmd, envp) < 0) {
-    #elif __APPLE__
-    if (execvP(secondCmd[0], getenv("PATH"), secondCmd) < 0) {
-    #endif
-      if (errno == 2) {
-        fprintf(stderr, "\n%s not found.\n", secondCmd[0]);
-      }
-      else {
-        fprintf(stderr, "\nError execing %s. Error#%d\n", secondCmd[0], errno);
-      }
-      exit(EXIT_FAILURE);
-    }
-    exit(0);
-  }
-
-  close(pipefd[0]);
-  close(pipefd[1]);
-
-  if (waitpid(pid1, &status, 0) == -1) {
-    fprintf(stderr, "\nError in child process %d. Error#%d\n", pid1, errno);
-    return 1;
-  }
-  if (WIFEXITED(status)) {
-    if (WEXITSTATUS(status) == EXIT_FAILURE) {
-      return 2;
-    }
-  }
-
-  if (waitpid(pid2, &status, 0) == -1) {
-    fprintf(stderr, "\nError in child process %d. Error#%d\n", pid2, errno);
-    return 1;
-  }
-  if (WIFEXITED(status)) {
-    if (WEXITSTATUS(status) == EXIT_FAILURE) {
-      return 2;
-    }
-  }
-}
 
   /*if(bgFlag == 1){
   int status;
@@ -342,9 +322,83 @@ else {
     }
   } */
 
+/*
+  Executes command containing one or more pipes
+  @param cmdSet: array of command vectors to execute
+  @param numCmds: number of total piped commands
+  @param envp: environment variables
+  @return: 0 for success
+*/
+int execPipedCommand(char*** cmdSet, int numCmds, char**envp)
+{
+  int status;
+  int numPipes = numCmds - 1;
+  pid_t pids[numCmds];
+  // create all pipes
+  int pipefds[numPipes * 2];
+  int i = 0;
+  for (; i < numPipes; ++i) {
+    pipe(pipefds + i * 2);
+  }
 
+  // fork all child processes
+  int j = 0;
+  for (; j < numCmds; ++j) {
+    printf("Forking process %d\n", j);
+    pids[j] = fork();
+    if (pids[j] == 0) {
+      // if not first command, set up input pipe
+      if (j != 0) {
+        printf("Reading from pipe %d\n", ((j -1) * 2));
+        dup2(pipefds[(j - 1) * 2], STDIN_FILENO);
+      }
+      // if not last command, set up output pipe
+      if (j != numCmds - 1) {
+        printf("Writing to pipe %d\n", ((j * 2) + 1));
+        dup2(pipefds[(j * 2) - 1], STDOUT_FILENO);
+      }
+      // close all pipes
+      i = 0;
+      for (; i < numPipes * 2; ++i) {
+        close(pipefds[i]);
+      }
+      // execute command
+      #ifdef __linux__
+      if (execvpe(cmdSet[j][0], cmdSet[j], envp) < 0) {
+      #elif __APPLE__
+      if (execvP(cmdSet[j][0], getenv("PATH"), cmdSet[j]) < 0) {
+      #endif
+        if (errno == 2) {
+          fprintf(stderr, "\n%s not found.\n", cmdSet[j][0]);
+        }
+        else {
+          fprintf(stderr, "\nError execing %s. Error#%d\n", cmdSet[j][0], errno);
+        }
+        exit(EXIT_FAILURE);
+      }
+      exit(0);
+    }
+  }
+
+  // close all pipes
+  i = 0;
+  for (; i < numPipes * 2; ++i) {
+    close(pipefds[i]);
+  }
+
+  // wait for all children
+  i = 0;
+  for (; i < numCmds; ++i) {
+    if (waitpid(pids[i], &status, 0) < 0) {
+      fprintf(stderr, "\nError in child process %d. Error#%d\n", pids[i], errno);
+    }
+  }
+  return 0;
+}
+  
 //i think this changes it i am not sure. 
-int cd(char** args) {
+int cd(char** args) 
+{
   if(args[1] == '\0'){
     fprintf(stderr, "Error: Expected argument to \"cd\"\n"); 
   } 
