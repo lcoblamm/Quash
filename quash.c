@@ -11,7 +11,8 @@
 int getCommand(char*** cmd, int* numArgs);
 int unpipeCommand(char** cmd, char*** unpiped[], int* numCmds);
 int execCommand(char** cmd, char** envp, int bgFlag); 
-int execPipedCommand(char*** cmdSet, int numCmds, char**envp);
+int execPipedCommand(char*** cmdSet, int numCmds, char** envp);
+int execSinglePipe(char*** cmdSet, char** envp);
 int cd(char** args);
 int jobs();
 int set(char** args);
@@ -86,8 +87,24 @@ int main(int argc, char* argv[], char** envp)
       int numCmds;
       ret = unpipeCommand(cmd, &unpipedCmds, &numCmds);
       // call execPipedCommand with array of commands and number of commands
-      ret = execPipedCommand(unpipedCmds, numCmds, envp);
-      // TODO: free unpipedCmds
+      if (numCmds == 2) {
+        ret = execSinglePipe(unpipedCmds, envp);
+      }
+      else {
+        ret = execPipedCommand(unpipedCmds, numCmds, envp);
+      }
+      // free up memory
+      int i = 0;
+      while (unpipedCmds[i] != 0) {
+        int j = 0;
+        while (unpipedCmds[i][j] != 0) {
+          free(unpipedCmds[i][j]);
+          j++;
+        }
+        free(unpipedCmds[i]);
+        i++;
+      }
+      free(unpipedCmds);
     }
     else {
       execCommand(cmd, envp, backgroundFlag);
@@ -338,23 +355,22 @@ int execPipedCommand(char*** cmdSet, int numCmds, char**envp)
   int pipefds[numPipes * 2];
   int i = 0;
   for (; i < numPipes; ++i) {
-    pipe(pipefds + i * 2);
+    pipe(pipefds + (i * 2));
   }
 
   // fork all child processes
   int j = 0;
   for (; j < numCmds; ++j) {
-    printf("Forking process %d\n", j);
     pids[j] = fork();
     if (pids[j] == 0) {
       // if not first command, set up input pipe
       if (j != 0) {
-        printf("Reading from pipe %d\n", ((j -1) * 2));
+        printf("Process %d reading from pipe %d\n", (j + 1), ((j -1) * 2));
         dup2(pipefds[(j - 1) * 2], STDIN_FILENO);
       }
       // if not last command, set up output pipe
       if (j != numCmds - 1) {
-        printf("Writing to pipe %d\n", ((j * 2) + 1));
+        printf("Process %d writing to pipe %d\n", (j + 1), ((j * 2) + 1));
         dup2(pipefds[(j * 2) - 1], STDOUT_FILENO);
       }
       // close all pipes
@@ -376,6 +392,7 @@ int execPipedCommand(char*** cmdSet, int numCmds, char**envp)
         }
         exit(EXIT_FAILURE);
       }
+      printf("Process %d exiting", (j + 1));
       exit(0);
     }
   }
@@ -391,6 +408,94 @@ int execPipedCommand(char*** cmdSet, int numCmds, char**envp)
   for (; i < numCmds; ++i) {
     if (waitpid(pids[i], &status, 0) < 0) {
       fprintf(stderr, "\nError in child process %d. Error#%d\n", pids[i], errno);
+    }
+  }
+  return 0;
+}
+
+/*
+  Executes piped command where only two commands are executed
+  @param cmdSet: vector containging two commands
+  @param envp: pointer to environment variables
+  @return: 0 for success
+  */
+int execSinglePipe(char*** cmdSet, char** envp)
+{
+  int status;
+  pid_t pid1;
+  pid_t pid2;
+  int pipefd[2];
+ 
+  pipe(pipefd);
+
+  pid1 = fork();
+  if(pid1 == 0) {
+    // First child
+    //set up pipe for stdout
+    dup2(pipefd[1], STDOUT_FILENO);
+    close(pipefd[0]);
+
+    // exec command
+    #ifdef __linux__
+    if (execvpe(cmdSet[0][0], cmdSet[0], envp) < 0) {
+    #elif __APPLE__
+    if (execvP(cmdSet[0][0], getenv("PATH"), cmdSet[0]) < 0) {
+    #endif
+      if (errno == 2) {
+        fprintf(stderr, "\n%s not found.\n", cmdSet[0][0]);
+      }
+      else {
+        fprintf(stderr, "\nError execing %s. Error#%d\n", cmdSet[0][0], errno);
+      }
+      exit(EXIT_FAILURE);
+    }
+    exit(0);
+   }
+
+  pid2 = fork();
+  if(pid2 == 0) {
+    //Second child
+    //set up pipe for stdin
+    dup2(pipefd[0], STDIN_FILENO);
+    close(pipefd[1]);
+
+    //exec command
+    #ifdef __linux__
+    if (execvpe(cmdSet[1][0], cmdSet[1], envp) < 0) {
+    #elif __APPLE__
+    if (execvP(cmdSet[1][0], getenv("PATH"), cmdSet[1]) < 0) {
+    #endif
+      if (errno == 2) {
+        fprintf(stderr, "\n%s not found.\n", cmdSet[1][0]);
+      }
+      else {
+        fprintf(stderr, "\nError execing %s. Error#%d\n", cmdSet[1][0], errno);
+      }
+      exit(EXIT_FAILURE);
+    }
+    exit(0);
+  }
+
+  close(pipefd[0]);
+  close(pipefd[1]);
+
+  if (waitpid(pid1, &status, 0) == -1) {
+    fprintf(stderr, "\nError in child process %d. Error#%d\n", pid1, errno);
+    return 1;
+  }
+  if (WIFEXITED(status)) {
+    if (WEXITSTATUS(status) == EXIT_FAILURE) {
+      return 2;
+    }
+  }
+
+  if (waitpid(pid2, &status, 0) == -1) {
+    fprintf(stderr, "\nError in child process %d. Error#%d\n", pid2, errno);
+    return 1;
+  }
+  if (WIFEXITED(status)) {
+    if (WEXITSTATUS(status) == EXIT_FAILURE) {
+      return 2;
     }
   }
   return 0;
