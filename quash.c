@@ -10,10 +10,18 @@
 
 int getCommand(char*** cmd, int numArgs);
 int execCommand(char** cmd, char** envp, int bgFlag); 
-int execPipedCommand(char** firstCmd, char** secondCmd, char**envp);
+int execdCommand(char** firstCmd, char** secondCmd, char**envp);
 int cd(char** args);
 int jobs();
 int set(char** args);
+
+struct job {
+	int pid;
+	int jobid;
+	char* cmd; 
+} ;
+struct job jobArray[100]; 
+int jobCount = 0; 
 
 int main(int argc, char* argv[], char** envp)
 {
@@ -40,16 +48,7 @@ int main(int argc, char* argv[], char** envp)
       continue;
     }
 
-    // need to find way to remove final argument to this case. Might move to get command. 
-    //char* background = strchr(cmd[numArgs - 1], '&'); 
-    
-    char* background = strchr(cmd[0], '&');
-    if (background != 0) {
-		  backgroundFlag = 1; 
-		  cmd[0]++;
-    } 
-    else backgroundFlag = 0; 
-
+     
     // search command for pipe 
     int pipeFlag = 0;
     int i = 0;
@@ -84,7 +83,7 @@ int main(int argc, char* argv[], char** envp)
       // call execPipedCommand with array of commands and number of commands
     }
     else {
-      execCommand(cmd, envp, backgroundFlag);
+      execCommand(cmd, envp, numArgs);
     }
 
     // free memory before getting next command
@@ -180,8 +179,15 @@ int getCommand(char*** cmd, int numArgs)
   @param envp: array of environment variables to pass to command
   @return: 0 for success, non-zero for failure
 */
-int execCommand(char** cmd, char** envp, int bgFlag) 
+int execCommand(char** cmd, char** envp, int numArgs) 
 {
+   int bgFlag;  
+   if(cmd[numArgs] != NULL) {char* background = strchr(cmd[numArgs], '&'); 
+   if(background != NULL) bgFlag = 1; } 
+   else bgFlag = 0; 
+
+
+
   if(bgFlag == 0) {
     int status;
     pid_t pid;
@@ -218,6 +224,53 @@ int execCommand(char** cmd, char** envp, int bgFlag)
       }
     }
   }
+
+ if(bgFlag == 1){
+	jobCount++;
+	jobArray[jobCount].pid = pid;
+	jobArray[jobCount].jobid = jobCount;
+	jobArray[jobCount].cmd = cmd[0];
+  int status;
+  pid_t pid;
+
+  pid = fork();
+    if (pid == 0) {
+      // child process
+	printf("[%d",jobCount); 
+ 	printf("]%d", pid); 
+	printf(" running in background \n");
+      #ifdef __linux__
+      if (execvpe(cmd[0], cmd, envp) < 0) {
+      #endif
+      #ifdef __APPLE__
+      if (execvP(cmd[0], getenv("PATH"), cmd) < 0) {
+      #endif
+        if (errno == 2) {
+          fprintf(stderr, "\n%s not found.\n", cmd[0]);
+        }
+        else {
+          fprintf(stderr, "\nError execing %s. Error#%d\n", cmd[0], errno);
+        }
+        exit(EXIT_FAILURE);
+      }
+       printf("[%d",jobCount); 
+       printf("]%d", pid);
+       printf(" finished %s", cmd[0]);
+       printf("\n"); 
+       jobCount--; 
+      exit(0);
+    }
+  
+	
+else {
+    // parent process	
+	// the goal of this is to not wait for the child. Probably needs to be polished. 
+ 
+        while (waitpid(pid,status, WEXITED|WNOHANG)> 0) { }
+     
+      } 
+    } 
+
 }
 
 // would only work for single pipe, need to change to work with multiple pipes
@@ -253,6 +306,8 @@ int execPipedCommand(char** firstCmd, char** secondCmd, char**envp)
       exit(EXIT_FAILURE);
     }
     exit(0);
+
+
   }
 
   pid2 = fork();
@@ -303,44 +358,8 @@ int execPipedCommand(char** firstCmd, char** secondCmd, char**envp)
   }
 }
 
-  /*if(bgFlag == 1){
-  int status;
-  pid_t pid;
-
-  pid = fork();
-  if (pid == 0) {
-    // child process
-	printf("[",jobcount,"] PID running in background");
-    #ifdef __linux__
-    if (execvpe(cmd[0], cmd, envp) < 0) {
-    #elif __APPLE__
-    if (execvP(cmd[0], getenv("PATH"), cmd) < 0) {
-    #endif
-      if (errno == 2) {
-        fprintf(stderr, "\n%s not found.\n", cmd[0]);
-      }
-      else {
-        fprintf(stderr, "\nError execing %s. Error#%d\n", cmd[0], errno);
-      }
-		printf("[",jobcount"]", PID finished", cmd); 
-      exit(EXIT_FAILURE);
-    }
-  }
-	
-else {
-    // parent process	
-	// the goal of this is to not wait for the child. Probably needs to be polished. 
-	jobCount++;
-	jobArray[jobCount].pid = pid;
-	jobArray[jobCount].jobid = jobCount;
-	jobArray[jobCount].cmd = cmd; 
-   while (waitpid(pid_1,NULL, WEXITED|WNOHANG)> 0) { }
- //   if (WIFEXITED(status)) {
-   //   if (WEXITSTATUS(status) == EXIT_FAILURE) {
-       // return 2;
-      }
-    }
-  } */
+ 
+  
 
 
 //i think this changes it i am not sure. 
@@ -357,13 +376,7 @@ int cd(char** args) {
   return 0;
 }
 
-struct job {
-	int pid;
-	int jobid;
-	char* cmd; 
-} ;
-struct job jobArray[100]; 
-int jobCount = 0; 
+
 
 int jobs() {
 	int i;
