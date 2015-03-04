@@ -10,9 +10,8 @@
 
 int getCommand(char*** cmd, int* numArgs);
 int unpipeCommand(char** cmd, char*** unpiped[], int* numCmds);
+
 int execCommand(char** cmd, char** envp, int bgFlag); 
-
-
 int execPipedCommand(char*** cmdSet, int numCmds, char** envp);
 int execSinglePipe(char*** cmdSet, char** envp);
 
@@ -53,7 +52,6 @@ int main(int argc, char* argv[], char** envp)
       continue;
     }
 
-     
     // search command for pipe 
     int pipeFlag = 0;
     int i = 0;
@@ -262,12 +260,10 @@ int unpipeCommand(char** cmd, char*** unpiped[], int* numCmds)
 */
 int execCommand(char** cmd, char** envp, int numArgs) 
 {
-   int bgFlag;  
-   if(cmd[numArgs] != NULL) {char* background = strchr(cmd[numArgs], '&'); 
-   if(background != NULL) bgFlag = 1; } 
-   else bgFlag = 0; 
-
-
+  int bgFlag;  
+  if(cmd[numArgs] != NULL) {char* background = strchr(cmd[numArgs], '&'); 
+  if(background != NULL) bgFlag = 1; } 
+  else bgFlag = 0; 
 
   if(bgFlag == 0) {
     int status;
@@ -305,22 +301,22 @@ int execCommand(char** cmd, char** envp, int numArgs)
       }
     }
   }
-<<<<<<< HEAD
 
- if(bgFlag == 1){
-	jobCount++;
-	jobArray[jobCount].pid = pid;
-	jobArray[jobCount].jobid = jobCount;
-	jobArray[jobCount].cmd = cmd[0];
-  int status;
-  pid_t pid;
+  if(bgFlag == 1) {
+    int status;
+    pid_t pid;
+    jobCount++;
+    jobArray[jobCount].pid = pid;
+    jobArray[jobCount].jobid = jobCount;
+    jobArray[jobCount].cmd = cmd[0];
 
-  pid = fork();
+
+    pid = fork();
     if (pid == 0) {
       // child process
-	printf("[%d",jobCount); 
- 	printf("]%d", pid); 
-	printf(" running in background \n");
+      printf("[%d",jobCount); 
+      printf("]%d", pid); 
+      printf(" running in background \n");
       #ifdef __linux__
       if (execvpe(cmd[0], cmd, envp) < 0) {
       #endif
@@ -335,119 +331,21 @@ int execCommand(char** cmd, char** envp, int numArgs)
         }
         exit(EXIT_FAILURE);
       }
-       printf("[%d",jobCount); 
-       printf("]%d", pid);
-       printf(" finished %s", cmd[0]);
-       printf("\n"); 
-       jobCount--; 
+      printf("[%d",jobCount); 
+      printf("]%d", pid);
+      printf(" finished %s", cmd[0]);
+      printf("\n"); 
+      jobCount--; 
       exit(0);
     }
-  
-	
-else {
-    // parent process	
-	// the goal of this is to not wait for the child. Probably needs to be polished. 
- 
-        while (waitpid(pid,status, WEXITED|WNOHANG)> 0) { }
-     
-      } 
+    else {
+     // parent process	
+     // the goal of this is to not wait for the child. Probably needs to be polished. 
+     while (waitpid(pid,status, WEXITED|WNOHANG)> 0) { }
     } 
-
+  } 
 }
-
-// would only work for single pipe, need to change to work with multiple pipes
-int execPipedCommand(char** firstCmd, char** secondCmd, char**envp)
-{
-  int status;
-  pid_t pid1;
-  pid_t pid2;
-  int pipefd[2];
-
-  pipe(pipefd);
-
-  pid1 = fork();
-  if(pid1 == 0) {
-    // First child
-
-    //set up pipe for stdout
-    dup2(pipefd[1], STDOUT_FILENO);
-    close(pipefd[0]);
-
-    // exec command
-    #ifdef __linux__
-    if (execvpe(firstCmd[0], firstCmd, envp) < 0) {
-    #elif __APPLE__
-    if (execvP(firstCmd[0], getenv("PATH"), firstCmd) < 0) {
-    #endif
-      if (errno == 2) {
-        fprintf(stderr, "\n%s not found.\n", firstCmd[0]);
-      }
-      else {
-        fprintf(stderr, "\nError execing %s. Error#%d\n", firstCmd[0], errno);
-      }
-      exit(EXIT_FAILURE);
-    }
-    exit(0);
-
-
-  }
-
-  pid2 = fork();
-  if(pid2 == 0) {
-    //Second child
-    //set up pipe for stdin
-    dup2(pipefd[0], STDIN_FILENO);
-    close(pipefd[1]);
-
-    //exec command
-    #ifdef __linux__
-    if (execvpe(secondCmd[0], secondCmd, envp) < 0) {
-    #elif __APPLE__
-    if (execvP(secondCmd[0], getenv("PATH"), secondCmd) < 0) {
-    #endif
-      if (errno == 2) {
-        fprintf(stderr, "\n%s not found.\n", secondCmd[0]);
-      }
-      else {
-        fprintf(stderr, "\nError execing %s. Error#%d\n", secondCmd[0], errno);
-      }
-      exit(EXIT_FAILURE);
-    }
-    exit(0);
-  }
-
-  close(pipefd[0]);
-  close(pipefd[1]);
-
-  if (waitpid(pid1, &status, 0) == -1) {
-    fprintf(stderr, "\nError in child process %d. Error#%d\n", pid1, errno);
-    return 1;
-  }
-  if (WIFEXITED(status)) {
-    if (WEXITSTATUS(status) == EXIT_FAILURE) {
-      return 2;
-    }
-  }
-
-  if (waitpid(pid2, &status, 0) == -1) {
-    fprintf(stderr, "\nError in child process %d. Error#%d\n", pid2, errno);
-    return 1;
-  }
-  if (WIFEXITED(status)) {
-    if (WEXITSTATUS(status) == EXIT_FAILURE) {
-      return 2;
-    }
-  }
-}
-
-  return 0;
-}
-
-
-
- 
   
-
 /*
   Executes command containing one or more pipes
   @param cmdSet: array of command vectors to execute
@@ -624,8 +522,6 @@ int cd(char** args)
   } 
   return 0;
 }
-
-
 
 int jobs() {
 	int i;
