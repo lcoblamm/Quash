@@ -36,8 +36,37 @@ int jobCount = 0;
 int main(int argc, char* argv[], char** envp)
 {
   int numArgs = 1;
-  char cwd[1024]; 
   int ret = 0;
+  if (argc > 1) {
+    // redirect input to file
+    int redirectInFlag = 0;
+    int i = 0;
+    while (argv[i] != 0) {
+      if (strcmp(argv[i], "<") == 0) {
+        redirectInFlag = 1;
+      } 
+      i++;
+    }
+    if (redirectInFlag == 0) {
+      fprintf(stderr, "\nUsage: quash < \"<file.ext>\"\n");
+      return -1;
+    }
+    int fd = open(argv[argc - 1], O_RDONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+    if (fd < 0) {
+      fprintf(stderr, "\nError opening %s. Error#%d\n", argv[argc - 1], errno);
+      exit(EXIT_FAILURE);
+    }
+    if (dup2(fd, STDIN_FILENO) < 0) {
+      fprintf(stderr, "\nError resetting stdin to %s. Error#%d\n", argv[argc -1], errno);
+      exit(EXIT_FAILURE);
+    }
+    char** cmd = malloc(numArgs * sizeof(char*));
+    if (!cmd) {
+      fprintf(stderr, "\nAllocation error\n, Error:%d\n", errno);
+      return -1;
+    }
+  }
+  char cwd[1024]; 
   
   while (1) {
     if (getcwd(cwd, sizeof(cwd)) != 0) {
@@ -331,10 +360,10 @@ int execCommand(char** cmd, char** envp, int numArgs)
     i++;
   } 
 
+  #ifdef __linux__
   if (background != NULL) {
    	bgFlag = 1; 
    	int i = 0;
-   	int j = 0;
 
    	while (cmd[i + 1] != NULL) {
       if(strcmp(cmd[i], "&") != 0) {
@@ -348,6 +377,14 @@ int execCommand(char** cmd, char** envp, int numArgs)
     }
     cmd[i] = NULL; 
   }    
+  #elif __APPLE__
+  if (background != NULL) {
+    bgFlag = 1;
+
+    // replace final & with null
+    cmd[numArgs - 1] = 0;
+  }
+  #endif
   else bgFlag = 0;
 
   if (bgFlag == 0) {
@@ -355,6 +392,10 @@ int execCommand(char** cmd, char** envp, int numArgs)
     pid_t pid;
 
     pid = fork();
+    if (pid < 0) {
+      fprintf(stderr, "\nError forking child. Error:%d\n", errno);
+      exit(EXIT_FAILURE);
+    }
     if (pid == 0) {
       // child process
       #ifdef __linux__
@@ -400,7 +441,7 @@ int execCommand(char** cmd, char** envp, int numArgs)
     if (pid == 0) {
       // child process
       printf("\n[%d]%d  running in background\n",jobCount , pid); 
-      execCommand(cmd, envp, 0); 
+      execCommand(cmd, envp, numArgs - 1); 
       kill(pid,0); 
       printf("[%d]%d finished %s\n", jobArray[jobCount + 1].jobid, pid, cmd[0]); 
       jobCount--;
@@ -414,7 +455,7 @@ int execCommand(char** cmd, char** envp, int numArgs)
 		  strcpy(newjob.bgcommand, cmd[0]);
  	    jobArray[jobCount] = newjob;
       jobCount++;
-   	  while (waitpid(pid, &status, WEXITED | WNOHANG)> 0) { }
+   	  while (waitpid(pid, &status, WEXITED | WNOHANG) > 0) { }
       return 0;
     } 
   } 
