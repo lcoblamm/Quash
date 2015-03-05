@@ -10,6 +10,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <signal.h>
 
 int getCommand(char*** cmd, int* numArgs);
 int splitCommand(char** cmd, char*** unpiped[], int* numCmds, char* separator);
@@ -38,7 +39,7 @@ int main(int argc, char* argv[], char** envp)
   int ret = 0;
   
   while (1) {
-    if(getcwd(cwd, sizeof(cwd)) != 0) {
+    if (getcwd(cwd, sizeof(cwd)) != 0) {
       printf(cwd);
       printf(" > "); 
     }	
@@ -324,32 +325,31 @@ int execCommand(char** cmd, char** envp, int numArgs)
   char* background;
   int destination_size = 0;
 
-  while(cmd[i] != NULL){
-	background = strchr(cmd[i], '&');
-        i++;
+  while (cmd[i] != NULL) {
+    background = strchr(cmd[i], '&');
+    i++;
   } 
 
-  if(background != NULL){
+  if (background != NULL) {
    	bgFlag = 1; 
    	int i = 0;
    	int j = 0;
 
    	while (cmd[i + 1] != NULL) {
-           if(strcmp(cmd[i], "&") != 0){
-                 strcpy(cmd[i], cmd[i]); 
-	   }
-           else{
-	 	strcpy(cmd[i + 1], cmd[i]); 
-		i++;
-	} 
-	 i++; 
-    	}
-	cmd[i] = NULL; 
+      if(strcmp(cmd[i], "&") != 0) {
+        strcpy(cmd[i], cmd[i]); 
+      }
+      else {
+        strcpy(cmd[i + 1], cmd[i]); 
+        i++;
+      } 
+      i++; 
+    }
+    cmd[i] = NULL; 
   }    
-   else bgFlag = 0;
+  else bgFlag = 0;
 
-
-  if(bgFlag == 0) {
+  if (bgFlag == 0) {
     int status;
     pid_t pid;
 
@@ -383,10 +383,11 @@ int execCommand(char** cmd, char** envp, int numArgs)
           return 2;
         }
       }
+      return 0;
     }
   }
 
-  if(bgFlag == 1) {
+  if (bgFlag == 1) {
     int status;
     pid_t pid;
    
@@ -394,23 +395,23 @@ int execCommand(char** cmd, char** envp, int numArgs)
 
     if (pid == 0) {
       // child process
-      printf(" \n[%d] %d  running in background\n",jobCount , pid); 
-
-     execCommand(cmd, envp, 0); 
+      printf("\n[%d]%d  running in background\n",jobCount , pid); 
+      execCommand(cmd, envp, 0); 
       kill(pid,0); 
-      printf("[%d]%s finished %d\n",jobArray[jobCount + 1].jobid, pid, cmd[0]); 
-             jobCount--;
+      printf("[%d]%d finished %s\n", jobArray[jobCount + 1].jobid, pid, cmd[0]); 
+      jobCount--;
       exit(0);
     }
     else {
-	struct job newjob;
-		newjob.pid = pid; 
-		newjob.jobid = jobCount;
-		newjob.bgcommand = (char *) malloc(100);
-		strcpy(newjob.bgcommand, cmd[0]);
- 	jobArray[jobCount] = newjob;
-	jobCount++;
-   	while (waitpid(pid,status, WEXITED|WNOHANG)> 0) { }
+      struct job newjob;
+		  newjob.pid = pid; 
+		  newjob.jobid = jobCount;
+		  newjob.bgcommand = (char *) malloc(100);
+		  strcpy(newjob.bgcommand, cmd[0]);
+ 	    jobArray[jobCount] = newjob;
+      jobCount++;
+   	  while (waitpid(pid, &status, WEXITED | WNOHANG)> 0) { }
+      return 0;
     } 
   } 
 }
@@ -688,26 +689,25 @@ int execRedirectedCommand(char** cmd, char** envp, int numArgs, char redirectSym
 //i think this changes it i am not sure. 
 int cd(char** args) 
 {
-  if(args[1] == '\0'){
-    	char* home = getenv("HOME");
-	chdir(home); 
+  if (args[1] == '\0') {
+    char* home = getenv("HOME");
+	  chdir(home); 
   } 
-  else{ 
-	  if(chdir(args[1])!= 0){
-	     printf("cd: %s: No such file or directory\n", args[1]); 
+  else { 
+	  if (chdir(args[1])!= 0) {
+      printf("cd: %s: No such file or directory\n", args[1]); 
 	  }
     return 1;
   } 
   return 0;
 }
 
-int jobs() {
+int jobs() 
+{
 	int i;
-
-  	for (i = 0; i < jobCount; i++) {
+  for (i = 0; i < jobCount; i++) {
 		printf("[%d] %d %s \n", jobArray[i].jobid, jobArray[i].pid, jobArray[i].bgcommand);
-		
-
+  }
   return 0;
 }
 
