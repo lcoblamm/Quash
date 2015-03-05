@@ -48,10 +48,12 @@ int main(int argc, char* argv[], char** envp)
     
     // read in input 
     char** cmd = malloc(numArgs * sizeof(char*));
-    ret = getCommand(&cmd, &numArgs);
-
-    if (ret != 0) {
-      // error running command
+    if (!cmd) {
+      fprintf(stderr, "\nAllocation error\n, Error:%d\n", errno);
+      return -1;
+    }
+    if (!getCommand(&cmd, &numArgs)) {
+      // error getting command
       continue;
     }
 
@@ -96,8 +98,15 @@ int main(int argc, char* argv[], char** envp)
     else if (pipeFlag == 1) {
       // parse into pieces between pipes
       char*** unpipedCmds = malloc(numArgs * sizeof(char**));
+      if (!unpipedCmds) {
+        fprintf(stderr, "\nAllocation error\n, Error:%d\n", errno);
+        continue;
+      }
       int numCmds;
-      ret = splitCommand(cmd, &unpipedCmds, &numCmds, "|");
+      if (!splitCommand(cmd, &unpipedCmds, &numCmds, "|")) {
+        fprintf(stderr, "\nError in splitCommand\n");
+        continue;
+      }
       // call execPipedCommand with array of commands and number of commands
       if (numCmds == 2) {
         ret = execSinglePipe(unpipedCmds, envp);
@@ -153,8 +162,8 @@ int getCommand(char*** cmd, int* numArgs)
   int cmdLength = 128;
   char* unparsedCmd = malloc(cmdLength * sizeof(char));
   if (!unparsedCmd) {
-    fprintf(stderr, "getCommand allocation error\n");
-    return 2;
+    fprintf(stderr, "\ngetCommand allocation error, Error:%d\n", errno);
+    return -1;
   }
   
   int index = 0;
@@ -181,8 +190,8 @@ int getCommand(char*** cmd, int* numArgs)
       unparsedCmd = realloc(unparsedCmd, cmdLength * sizeof(char));
       if (!unparsedCmd) {
         // error in reallocation
-        fprintf(stderr, "getCommand allocation error\n");
-        return 2;
+        fprintf(stderr, "\ngetCommand allocation error, Error:%d\n", errno);
+        return -1;
       }
     }
   } while (1);
@@ -193,6 +202,10 @@ int getCommand(char*** cmd, int* numArgs)
   while (arg != 0) {
     // allocate memory for string storage
     (*cmd)[argNum] = malloc((strlen(arg) + 1) * sizeof(char));
+    if (!((*cmd)[argNum])) {
+      fprintf(stderr, "\ngetCommand allocation error, Error:%d\n", errno);
+      return -1;
+    }
     memset((*cmd)[argNum], '\0', (strlen(arg) + 1));
     // NOTE: need to copy because unparsedCmd goes out of scope
     strcpy((*cmd)[argNum], arg);
@@ -203,8 +216,8 @@ int getCommand(char*** cmd, int* numArgs)
       *cmd = realloc(*cmd, (*numArgs) * sizeof(char*));
       if (!(*cmd)) {
         // error in reallocations
-        fprintf(stderr, "getCommand allocation error\n");
-        return 2;
+        fprintf(stderr, "\ngetCommand allocation error, Error:%d\n", errno);
+        return -1;
       }
     }
 
@@ -213,6 +226,7 @@ int getCommand(char*** cmd, int* numArgs)
   // add one last null pointer
   (*cmd)[argNum] = 0;
 
+  // set numArgs to be the actual number of arguments (not size of array)
   *numArgs = argNum;
 
   free(unparsedCmd);
@@ -239,6 +253,10 @@ int splitCommand(char** cmd, char*** separated[], int* numCmds, char* separator)
     if (strcmp(cmd[index], separator) == 0) {
       // allocate memory for command
       (*separated)[cmdVector] = malloc(((index - lastIndex) + 1) * sizeof(char*));
+      if (!((*separated)[cmdVector])) {
+        fprintf(stderr, "\nsplitCommand allocation error, Error:%d\n", errno);
+        return -1;
+      }
       memset((*separated)[cmdVector], '\0', ((index - lastIndex) + 1));
 
       int arg = 0;
@@ -246,6 +264,10 @@ int splitCommand(char** cmd, char*** separated[], int* numCmds, char* separator)
       for(; lastIndex < index; ++lastIndex, ++arg) {
         // allocate memory for string in command
         (*separated)[cmdVector][arg] = malloc((strlen(cmd[lastIndex]) + 1) * sizeof(char));
+        if (!((*separated)[cmdVector][arg])) {
+          fprintf(stderr, "\nsplitCommand allocation error, Error:%d\n", errno);
+          return -1;
+        }
         memset((*separated)[cmdVector][arg], '\0', (strlen(cmd[lastIndex]) + 1));
         // copy string 
         strcpy((*separated)[cmdVector][arg], cmd[lastIndex]);
@@ -260,6 +282,10 @@ int splitCommand(char** cmd, char*** separated[], int* numCmds, char* separator)
   // copy last command
   // allocate memory for command
   (*separated)[cmdVector] = malloc((index - lastIndex + 1) * sizeof(char*));
+  if (!((*separated)[cmdVector])) {
+    fprintf(stderr, "\nsplitCommand allocation error, Error:%d\n", errno);
+    return -1;
+  }
   memset((*separated)[cmdVector], '\0', (index - lastIndex + 1));
 
   int arg = 0;
@@ -267,6 +293,10 @@ int splitCommand(char** cmd, char*** separated[], int* numCmds, char* separator)
   for(; lastIndex < index; ++lastIndex, ++arg) {
     // allocate memory for string in command
     (*separated)[cmdVector][arg] = malloc((strlen(cmd[lastIndex]) + 1) * sizeof(char));
+    if (!((*separated)[cmdVector][arg])) {
+      fprintf(stderr, "\nsplitCommand allocation error, Error:%d\n", errno);
+      return -1;
+    }
     memset((*separated)[cmdVector][arg], '\0', (strlen(cmd[lastIndex]) + 1));
     // copy string 
     strcpy((*separated)[cmdVector][arg], cmd[lastIndex]);
