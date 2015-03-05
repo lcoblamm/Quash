@@ -52,7 +52,7 @@ int main(int argc, char* argv[], char** envp)
       fprintf(stderr, "\nAllocation error\n, Error:%d\n", errno);
       return -1;
     }
-    if (!getCommand(&cmd, &numArgs)) {
+    if (getCommand(&cmd, &numArgs) != 0) {
       // error getting command
       continue;
     }
@@ -102,8 +102,9 @@ int main(int argc, char* argv[], char** envp)
         fprintf(stderr, "\nAllocation error\n, Error:%d\n", errno);
         continue;
       }
+      memset(unpipedCmds, '\0', numArgs * sizeof(char**));
       int numCmds;
-      if (!splitCommand(cmd, &unpipedCmds, &numCmds, "|")) {
+      if (splitCommand(cmd, &unpipedCmds, &numCmds, "|") != 0) {
         fprintf(stderr, "\nError in splitCommand\n");
         continue;
       }
@@ -311,6 +312,8 @@ int splitCommand(char** cmd, char*** separated[], int* numCmds, char* separator)
   @param cmd: cmd with args to execute
   @param envp: array of environment variables to pass to command
   @return: 0 for success, non-zero for failure
+
+  TODO: make sure all syscalls have error checks
 */
 int execCommand(char** cmd, char** envp, int numArgs) 
 {
@@ -416,7 +419,10 @@ int execPipedCommand(char*** cmdSet, int numCmds, char**envp)
   int pipefds[numPipes * 2];
   int i = 0;
   for (; i < numPipes; ++i) {
-    pipe(pipefds + (i * 2));
+    if (pipe(pipefds + (i * 2)) < 0) {
+      fprintf(stderr, "\nError creating pipe %d. Error:%d\n", (i * 2), errno);
+      return -1;
+    }
   }
 
   // fork all child processes
@@ -426,13 +432,17 @@ int execPipedCommand(char*** cmdSet, int numCmds, char**envp)
     if (pids[j] == 0) {
       // if not first command, set up input pipe
       if (j != 0) {
-        printf("Process %d reading from pipe %d\n", (j + 1), ((j -1) * 2));
-        dup2(pipefds[(j - 1) * 2], STDIN_FILENO);
+        if (dup2(pipefds[(j - 1) * 2], STDIN_FILENO) < 0) {
+          fprintf(stderr, "\nError setting stdin to pipe %d. Error:%d\n", ((j - 1) * 2), errno);
+          exit(EXIT_FAILURE);
+        }
       }
       // if not last command, set up output pipe
       if (j != numCmds - 1) {
-        printf("Process %d writing to pipe %d\n", (j + 1), ((j * 2) + 1));
-        dup2(pipefds[(j * 2) - 1], STDOUT_FILENO);
+        if (dup2(pipefds[(j * 2) + 1], STDOUT_FILENO) < 0) {
+          fprintf(stderr, "\nError setting stdout to pipe %d. Error:%d\n", ((j * 2) + 1), errno);
+          exit(EXIT_FAILURE);
+        }
       }
       // close all pipes
       i = 0;
@@ -469,6 +479,7 @@ int execPipedCommand(char*** cmdSet, int numCmds, char**envp)
   for (; i < numCmds; ++i) {
     if (waitpid(pids[i], &status, 0) < 0) {
       fprintf(stderr, "\nError in child process %d. Error#%d\n", pids[i], errno);
+      return -1;
     }
   }
   return 0;
