@@ -16,10 +16,11 @@
 int getCommand(char*** cmd, int* numArgs);
 int splitCommand(char** cmd, char*** unpiped[], int* numCmds, char* separator);
 
-int execCommand(char** cmd, char** envp, int bgFlag); 
+int execCommand(char** cmd, char** envp, int numArgs); 
 int execPipedCommand(char*** cmdSet, int numCmds, char** envp);
 int execSinglePipe(char*** cmdSet, char** envp);
 int execRedirectedCommand(char** cmd, char** envp, int numArgs, char redirectSym);
+int execQuashFromFile();
 
 int cd(char** args);
 int jobs();
