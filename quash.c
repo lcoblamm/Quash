@@ -1,5 +1,7 @@
 /*
-  The shell will run from here
+  File: quash.c
+  Authors: Roxanne Calderon & Lynne Coblammers
+  EECS 678 Project 1
 */
 
 #include <stdio.h>
@@ -7,13 +9,15 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 int getCommand(char*** cmd, int* numArgs);
-int unpipeCommand(char** cmd, char*** unpiped[], int* numCmds);
+int splitCommand(char** cmd, char*** unpiped[], int* numCmds, char* separator);
 
 int execCommand(char** cmd, char** envp, int bgFlag); 
 int execPipedCommand(char*** cmdSet, int numCmds, char** envp);
 int execSinglePipe(char*** cmdSet, char** envp);
+int execRedirectedCommand(char** cmd, char** envp, int numArgs, char redirectSym);
 
 int cd(char** args);
 int jobs();
@@ -32,7 +36,6 @@ int main(int argc, char* argv[], char** envp)
   int numArgs = 1;
   char cwd[1024]; 
   int ret = 0;
-  int backgroundFlag = 0; 
   
   while (1) {
     if(getcwd(cwd, sizeof(cwd)) != 0) {
@@ -45,22 +48,35 @@ int main(int argc, char* argv[], char** envp)
     
     // read in input 
     char** cmd = malloc(numArgs * sizeof(char*));
-    ret = getCommand(&cmd, &numArgs);
-
-    if (ret != 0) {
-      // error running command
+    if (!cmd) {
+      fprintf(stderr, "\nAllocation error\n, Error:%d\n", errno);
+      return -1;
+    }
+    if (getCommand(&cmd, &numArgs) != 0) {
+      // error getting command
       continue;
     }
 
-    // search command for pipe 
+    // search command for pipes & redirects
+    int redirectInFlag = 0;
+    int redirectOutFlag = 0;
     int pipeFlag = 0;
     int i = 0;
     while (cmd[i] != 0) {
       if (strcmp(cmd[i], "|") == 0) {
         pipeFlag = 1;
       }
+      else if (strcmp(cmd[i], "<") == 0) {
+        redirectInFlag = 1;
+      }
+      else if (strcmp(cmd[i], ">") == 0) {
+        redirectOutFlag = 1;
+      }
       i++;
     }
+
+    
+    // determine command type
 
     if (strcmp(cmd[0], "exit") == 0 || strcmp(cmd[0], "quit") == 0) {
       // free memory and exit
@@ -84,8 +100,16 @@ int main(int argc, char* argv[], char** envp)
     else if (pipeFlag == 1) {
       // parse into pieces between pipes
       char*** unpipedCmds = malloc(numArgs * sizeof(char**));
+      if (!unpipedCmds) {
+        fprintf(stderr, "\nAllocation error\n, Error:%d\n", errno);
+        continue;
+      }
+      memset(unpipedCmds, '\0', numArgs * sizeof(char**));
       int numCmds;
-      ret = unpipeCommand(cmd, &unpipedCmds, &numCmds);
+      if (splitCommand(cmd, &unpipedCmds, &numCmds, "|") != 0) {
+        fprintf(stderr, "\nError in splitCommand\n");
+        continue;
+      }
       // call execPipedCommand with array of commands and number of commands
       if (numCmds == 2) {
         ret = execSinglePipe(unpipedCmds, envp);
@@ -105,6 +129,15 @@ int main(int argc, char* argv[], char** envp)
         i++;
       }
       free(unpipedCmds);
+    }
+    else if (redirectInFlag == 1 || redirectOutFlag == 1) {
+      if (redirectInFlag == 1) {
+        ret = execRedirectedCommand(cmd, envp, numArgs, '<');
+      }
+      else {
+        // redirecting out
+        ret = execRedirectedCommand(cmd, envp, numArgs, '>');
+      }
     }
     else {
       execCommand(cmd, envp, numArgs);
@@ -132,8 +165,8 @@ int getCommand(char*** cmd, int* numArgs)
   int cmdLength = 128;
   char* unparsedCmd = malloc(cmdLength * sizeof(char));
   if (!unparsedCmd) {
-    fprintf(stderr, "getCommand allocation error\n");
-    return 2;
+    fprintf(stderr, "\ngetCommand allocation error, Error:%d\n", errno);
+    return -1;
   }
   
   int index = 0;
@@ -160,8 +193,8 @@ int getCommand(char*** cmd, int* numArgs)
       unparsedCmd = realloc(unparsedCmd, cmdLength * sizeof(char));
       if (!unparsedCmd) {
         // error in reallocation
-        fprintf(stderr, "getCommand allocation error\n");
-        return 2;
+        fprintf(stderr, "\ngetCommand allocation error, Error:%d\n", errno);
+        return -1;
       }
     }
   } while (1);
@@ -172,6 +205,10 @@ int getCommand(char*** cmd, int* numArgs)
   while (arg != 0) {
     // allocate memory for string storage
     (*cmd)[argNum] = malloc((strlen(arg) + 1) * sizeof(char));
+    if (!((*cmd)[argNum])) {
+      fprintf(stderr, "\ngetCommand allocation error, Error:%d\n", errno);
+      return -1;
+    }
     memset((*cmd)[argNum], '\0', (strlen(arg) + 1));
     // NOTE: need to copy because unparsedCmd goes out of scope
     strcpy((*cmd)[argNum], arg);
@@ -182,8 +219,8 @@ int getCommand(char*** cmd, int* numArgs)
       *cmd = realloc(*cmd, (*numArgs) * sizeof(char*));
       if (!(*cmd)) {
         // error in reallocations
-        fprintf(stderr, "getCommand allocation error\n");
-        return 2;
+        fprintf(stderr, "\ngetCommand allocation error, Error:%d\n", errno);
+        return -1;
       }
     }
 
@@ -192,62 +229,82 @@ int getCommand(char*** cmd, int* numArgs)
   // add one last null pointer
   (*cmd)[argNum] = 0;
 
+  // set numArgs to be the actual number of arguments (not size of array)
+  *numArgs = argNum;
+
   free(unparsedCmd);
 
   return 0;
 }
 
 /*
-  Removes pipes from command and splits into separate commands
+  Splits command into several command vectors around separator provided
   @param cmd: [in] command to remove pipes from
-  @param unpiped: [out] array of command vectors
-  @param numCmds [out] number of separate commands
+  @param separated: [out] array of command vectors
+  @param numCmds: [out] number of separate commands
+  @param separator: [in] symbol to separate commands by (e.g. |, <, >)
   @return: 0 for success
 */
-int unpipeCommand(char** cmd, char*** unpiped[], int* numCmds)
+int splitCommand(char** cmd, char*** separated[], int* numCmds, char* separator)
 {
-  int lastIndex = 0;
-  int index = 0;
-  int unpipedIndex = 0;
+  int lastIndex = 0; // keeps track of beginning of last command copied
+  int index = 0; // keeps track of current place in original command
+  int cmdVector = 0; 
   (*numCmds) = 0;
   // read each argument of command
   while (cmd[index] != 0) {
-    if (strcmp(cmd[index], "|") == 0) {
+    if (strcmp(cmd[index], separator) == 0) {
       // allocate memory for command
-      (*unpiped)[unpipedIndex] = malloc(((index - lastIndex) + 1) * sizeof(char*));
-      memset((*unpiped)[unpipedIndex], '\0', ((index - lastIndex) + 1));
-
-      int unpipedStrIdx = 0;
-      // copy each string up to pipe into command vector of unpiped
-      for(; lastIndex < index; ++lastIndex, ++unpipedStrIdx) {
-        // allocate memory for string in command
-        (*unpiped)[unpipedIndex][unpipedStrIdx] = malloc((strlen(cmd[lastIndex]) + 1) * sizeof(char));
-        memset((*unpiped)[unpipedIndex][unpipedStrIdx], '\0', (strlen(cmd[lastIndex]) + 1));
-        // copy string 
-        strcpy((*unpiped)[unpipedIndex][unpipedStrIdx], cmd[lastIndex]);
+      (*separated)[cmdVector] = malloc(((index - lastIndex) + 1) * sizeof(char*));
+      if (!((*separated)[cmdVector])) {
+        fprintf(stderr, "\nsplitCommand allocation error, Error:%d\n", errno);
+        return -1;
       }
-      (*unpiped)[unpipedIndex][unpipedStrIdx] = 0;
+      memset((*separated)[cmdVector], '\0', ((index - lastIndex) + 1));
+
+      int arg = 0;
+      // copy each string up to pipe into command vector of separated
+      for(; lastIndex < index; ++lastIndex, ++arg) {
+        // allocate memory for string in command
+        (*separated)[cmdVector][arg] = malloc((strlen(cmd[lastIndex]) + 1) * sizeof(char));
+        if (!((*separated)[cmdVector][arg])) {
+          fprintf(stderr, "\nsplitCommand allocation error, Error:%d\n", errno);
+          return -1;
+        }
+        memset((*separated)[cmdVector][arg], '\0', (strlen(cmd[lastIndex]) + 1));
+        // copy string 
+        strcpy((*separated)[cmdVector][arg], cmd[lastIndex]);
+      }
+      (*separated)[cmdVector][arg] = 0;
       lastIndex = index + 1;
-      unpipedIndex++;
+      cmdVector++;
       (*numCmds)++;
     }
     index++;
   }
   // copy last command
   // allocate memory for command
-  (*unpiped)[unpipedIndex] = malloc((index - lastIndex + 1) * sizeof(char*));
-  memset((*unpiped)[unpipedIndex], '\0', (index - lastIndex + 1));
-
-  int unpipedStrIdx = 0;
-  // copy each string up to pipe into command vector of unpiped
-  for(; lastIndex < index; ++lastIndex, ++unpipedStrIdx) {
-    // allocate memory for string in command
-    (*unpiped)[unpipedIndex][unpipedStrIdx] = malloc((strlen(cmd[lastIndex]) + 1) * sizeof(char));
-    memset((*unpiped)[unpipedIndex][unpipedStrIdx], '\0', (strlen(cmd[lastIndex]) + 1));
-    // copy string 
-    strcpy((*unpiped)[unpipedIndex][unpipedStrIdx], cmd[lastIndex]);
+  (*separated)[cmdVector] = malloc((index - lastIndex + 1) * sizeof(char*));
+  if (!((*separated)[cmdVector])) {
+    fprintf(stderr, "\nsplitCommand allocation error, Error:%d\n", errno);
+    return -1;
   }
-  (*unpiped)[unpipedIndex][unpipedStrIdx] = 0;
+  memset((*separated)[cmdVector], '\0', (index - lastIndex + 1));
+
+  int arg = 0;
+  // copy each string up to pipe into command vector of separated
+  for(; lastIndex < index; ++lastIndex, ++arg) {
+    // allocate memory for string in command
+    (*separated)[cmdVector][arg] = malloc((strlen(cmd[lastIndex]) + 1) * sizeof(char));
+    if (!((*separated)[cmdVector][arg])) {
+      fprintf(stderr, "\nsplitCommand allocation error, Error:%d\n", errno);
+      return -1;
+    }
+    memset((*separated)[cmdVector][arg], '\0', (strlen(cmd[lastIndex]) + 1));
+    // copy string 
+    strcpy((*separated)[cmdVector][arg], cmd[lastIndex]);
+  }
+  (*separated)[cmdVector][arg] = 0;
   (*numCmds)++;
   return 0;
 }
@@ -257,6 +314,8 @@ int unpipeCommand(char** cmd, char*** unpiped[], int* numCmds)
   @param cmd: cmd with args to execute
   @param envp: array of environment variables to pass to command
   @return: 0 for success, non-zero for failure
+
+  TODO: make sure all syscalls have error checks
 */
 int execCommand(char** cmd, char** envp, int numArgs) 
 {
@@ -315,7 +374,7 @@ int execCommand(char** cmd, char** envp, int numArgs)
     }
     else {
       // parent process
-      if (waitpid(pid, &status, 0) == -1) {
+      if (waitpid(pid, &status, 0) < 0) {
         fprintf(stderr, "\nError in child process %d. Error#%d\n", pid, errno);
         return 1;
       }
@@ -372,7 +431,10 @@ int execPipedCommand(char*** cmdSet, int numCmds, char**envp)
   int pipefds[numPipes * 2];
   int i = 0;
   for (; i < numPipes; ++i) {
-    pipe(pipefds + (i * 2));
+    if (pipe(pipefds + (i * 2)) < 0) {
+      fprintf(stderr, "\nError creating pipe %d. Error:%d\n", (i * 2), errno);
+      return -1;
+    }
   }
 
   // fork all child processes
@@ -382,13 +444,17 @@ int execPipedCommand(char*** cmdSet, int numCmds, char**envp)
     if (pids[j] == 0) {
       // if not first command, set up input pipe
       if (j != 0) {
-        printf("Process %d reading from pipe %d\n", (j + 1), ((j -1) * 2));
-        dup2(pipefds[(j - 1) * 2], STDIN_FILENO);
+        if (dup2(pipefds[(j - 1) * 2], STDIN_FILENO) < 0) {
+          fprintf(stderr, "\nError setting stdin to pipe %d. Error:%d\n", ((j - 1) * 2), errno);
+          exit(EXIT_FAILURE);
+        }
       }
       // if not last command, set up output pipe
       if (j != numCmds - 1) {
-        printf("Process %d writing to pipe %d\n", (j + 1), ((j * 2) + 1));
-        dup2(pipefds[(j * 2) - 1], STDOUT_FILENO);
+        if (dup2(pipefds[(j * 2) + 1], STDOUT_FILENO) < 0) {
+          fprintf(stderr, "\nError setting stdout to pipe %d. Error:%d\n", ((j * 2) + 1), errno);
+          exit(EXIT_FAILURE);
+        }
       }
       // close all pipes
       i = 0;
@@ -426,6 +492,7 @@ int execPipedCommand(char*** cmdSet, int numCmds, char**envp)
   for (; i < numCmds; ++i) {
     if (waitpid(pids[i], &status, 0) < 0) {
       fprintf(stderr, "\nError in child process %d. Error#%d\n", pids[i], errno);
+      return -1;
     }
   }
   return 0;
@@ -518,6 +585,80 @@ int execSinglePipe(char*** cmdSet, char** envp)
   }
   return 0;
 }
+
+/*
+  Executes command with redirect
+  @param cmd: command to execute, including redirect & file
+  @param envp: environment variables
+  @param redirectSym: either < or >
+*/
+int execRedirectedCommand(char** cmd, char** envp, int numArgs, char redirectSym)
+{
+  int status;
+  int fd;
+  pid_t pid;
+
+  pid = fork();
+  if (pid == 0) {
+    // child process
+    // redirect input or output as needed
+    if (redirectSym == '<') {
+      fd = open(cmd[numArgs - 1], O_RDONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+      if (fd < 0) {
+        fprintf(stderr, "\nError opening %s. Error#%d\n", cmd[numArgs - 1], errno);
+        return 1;
+      }
+      if (dup2(fd, STDIN_FILENO) < 0) {
+        fprintf(stderr, "\nError resetting stdin to %s. Error#%d\n", cmd[numArgs -1], errno);
+        return 1;
+      }
+    }
+    else {
+      fd = open(cmd[numArgs - 1], O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+      if (fd < 0) {
+        fprintf(stderr, "\nError opening %s. Error#%d\n", cmd[numArgs - 1], errno);
+        return 1;
+      }
+      if (dup2(fd, STDOUT_FILENO) < 0) {
+        fprintf(stderr, "\nError resetting stdout to %s. Error#%d\n", cmd[numArgs -1], errno);
+        return 1;
+      }
+    }
+    close(fd);
+    // copy command up to redirect
+    cmd = realloc(cmd, (numArgs - 1) * sizeof(char*));
+    cmd[numArgs - 2] = 0;
+
+    #ifdef __linux__
+    if (execvpe(cmd[0], cmd, envp) < 0) {
+    #endif
+    #ifdef __APPLE__
+    if (execvP(cmd[0], getenv("PATH"), cmd) < 0) {
+    #endif
+      if (errno == 2) {
+        fprintf(stderr, "\n%s not found.\n", cmd[0]);
+      }
+      else {
+        fprintf(stderr, "\nError execing %s. Error#%d\n", cmd[0], errno);
+      }
+      exit(EXIT_FAILURE);
+    }
+    exit(0);
+  }
+  else {
+    // parent process
+    if (waitpid(pid, &status, 0) == -1) {
+      fprintf(stderr, "\nError in child process %d. Error#%d\n", pid, errno);
+      return 1;
+    }
+    if (WIFEXITED(status)) {
+      if (WEXITSTATUS(status) == EXIT_FAILURE) {
+        return 2;
+      }
+    }
+    return 0;
+  }
+}
   
 //i think this changes it i am not sure. 
 int cd(char** args) 
@@ -537,10 +678,10 @@ int cd(char** args)
 
 int jobs() {
 	int i;
+
   	for (i = 0; i < jobCount; i++) {
 		printf("[%d] %d %s \n", jobArray[i].jobid, jobArray[i].pid, jobArray[i].bgcommand);
 		
-	} 
 
   return 0;
 }
