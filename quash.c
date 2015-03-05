@@ -22,7 +22,7 @@ int set(char** args);
 struct job {
 	int pid;
 	int jobid;
-	char* cmd; 
+	char* bgcommand; 
 } ;
 struct job jobArray[100]; 
 int jobCount = 0; 
@@ -61,7 +61,7 @@ int main(int argc, char* argv[], char** envp)
       }
       i++;
     }
-    
+
     if (strcmp(cmd[0], "exit") == 0 || strcmp(cmd[0], "quit") == 0) {
       // free memory and exit
       int i = 0;
@@ -260,10 +260,35 @@ int unpipeCommand(char** cmd, char*** unpiped[], int* numCmds)
 */
 int execCommand(char** cmd, char** envp, int numArgs) 
 {
-  int bgFlag;  
-  if(cmd[numArgs] != NULL) {char* background = strchr(cmd[numArgs], '&'); 
-  if(background != NULL) bgFlag = 1; } 
-  else bgFlag = 0; 
+  int bgFlag = 0 ; 
+  int i = 0; 
+  char* background;
+  int destination_size = 0;
+
+  while(cmd[i] != NULL){
+	background = strchr(cmd[i], '&');
+        i++;
+  } 
+
+  if(background != NULL){
+   	bgFlag = 1; 
+   	int i = 0;
+   	int j = 0;
+
+   	while (cmd[i + 1] != NULL) {
+           if(strcmp(cmd[i], "&") != 0){
+                 strcpy(cmd[i], cmd[i]); 
+	   }
+           else{
+	 	strcpy(cmd[i + 1], cmd[i]); 
+		i++;
+	} 
+	 i++; 
+    	}
+	cmd[i] = NULL; 
+  }    
+   else bgFlag = 0;
+
 
   if(bgFlag == 0) {
     int status;
@@ -305,43 +330,28 @@ int execCommand(char** cmd, char** envp, int numArgs)
   if(bgFlag == 1) {
     int status;
     pid_t pid;
-    jobCount++;
-    jobArray[jobCount].pid = pid;
-    jobArray[jobCount].jobid = jobCount;
-    jobArray[jobCount].cmd = cmd[0];
-
-
+   
     pid = fork();
+
     if (pid == 0) {
       // child process
-      printf("[%d",jobCount); 
-      printf("]%d", pid); 
-      printf(" running in background \n");
-      #ifdef __linux__
-      if (execvpe(cmd[0], cmd, envp) < 0) {
-      #endif
-      #ifdef __APPLE__
-      if (execvP(cmd[0], getenv("PATH"), cmd) < 0) {
-      #endif
-        if (errno == 2) {
-          fprintf(stderr, "\n%s not found.\n", cmd[0]);
-        }
-        else {
-          fprintf(stderr, "\nError execing %s. Error#%d\n", cmd[0], errno);
-        }
-        exit(EXIT_FAILURE);
-      }
-      printf("[%d",jobCount); 
-      printf("]%d", pid);
-      printf(" finished %s", cmd[0]);
-      printf("\n"); 
-      jobCount--; 
+      printf(" \n[%d] %d  running in background\n",jobCount , pid); 
+
+     execCommand(cmd, envp, 0); 
+      kill(pid,0); 
+      printf("[%d]%s finished %d\n",jobArray[jobCount + 1].jobid, pid, cmd[0]); 
+             jobCount--;
       exit(0);
     }
     else {
-     // parent process	
-     // the goal of this is to not wait for the child. Probably needs to be polished. 
-     while (waitpid(pid,status, WEXITED|WNOHANG)> 0) { }
+	struct job newjob;
+		newjob.pid = pid; 
+		newjob.jobid = jobCount;
+		newjob.bgcommand = (char *) malloc(100);
+		strcpy(newjob.bgcommand, cmd[0]);
+ 	jobArray[jobCount] = newjob;
+	jobCount++;
+   	while (waitpid(pid,status, WEXITED|WNOHANG)> 0) { }
     } 
   } 
 }
@@ -384,6 +394,7 @@ int execPipedCommand(char*** cmdSet, int numCmds, char**envp)
       i = 0;
       for (; i < numPipes * 2; ++i) {
         close(pipefds[i]);
+
       }
       // execute command
       #ifdef __linux__
@@ -512,7 +523,8 @@ int execSinglePipe(char*** cmdSet, char** envp)
 int cd(char** args) 
 {
   if(args[1] == '\0'){
-    fprintf(stderr, "Error: Expected argument to \"cd\"\n"); 
+    	char* home = getenv("HOME");
+	chdir(home); 
   } 
   else{ 
 	  if(chdir(args[1])!= 0){
@@ -526,7 +538,8 @@ int cd(char** args)
 int jobs() {
 	int i;
   	for (i = 0; i < jobCount; i++) {
-		printf("[", jobArray[i].jobid, "]", " ", jobArray[i].pid, " ", jobArray[i].cmd, "\n");  
+		printf("[%d] %d %s \n", jobArray[i].jobid, jobArray[i].pid, jobArray[i].bgcommand);
+		
 	} 
 
   return 0;
