@@ -213,7 +213,7 @@ int getCommand(char*** cmd, int* numArgs)
   // add one last null pointer
   (*cmd)[argNum] = 0;
 
-  *numArgs = argNum - 1;
+  *numArgs = argNum;
 
   free(unparsedCmd);
 
@@ -549,17 +549,31 @@ int execRedirectedCommand(char** cmd, char** envp, int numArgs, char redirectSym
     // child process
     // redirect input or output as needed
     if (redirectSym == '<') {
-      fd = open(cmd[numArgs - 1], O_RDONLY);
-      dup2(fd, STDIN_FILENO);
+      fd = open(cmd[numArgs - 1], O_RDONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+      if (fd < 0) {
+        fprintf(stderr, "\nError opening %s. Error#%d\n", cmd[numArgs - 1], errno);
+        return 1;
+      }
+      if (dup2(fd, STDIN_FILENO) < 0) {
+        fprintf(stderr, "\nError resetting stdin to %s. Error#%d\n", cmd[numArgs -1], errno);
+        return 1;
+      }
     }
     else {
-      fd = open(cmd[numArgs - 1], O_WRONLY | O_TRUNC);
-      dup2(fd, STDOUT_FILENO);
+      fd = open(cmd[numArgs - 1], O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+      if (fd < 0) {
+        fprintf(stderr, "\nError opening %s. Error#%d\n", cmd[numArgs - 1], errno);
+        return 1;
+      }
+      if (dup2(fd, STDOUT_FILENO) < 0) {
+        fprintf(stderr, "\nError resetting stdout to %s. Error#%d\n", cmd[numArgs -1], errno);
+        return 1;
+      }
     }
     close(fd);
     // copy command up to redirect
     cmd = realloc(cmd, (numArgs - 1) * sizeof(char*));
-    cmd[numArgs - 1] = 0;
+    cmd[numArgs - 2] = 0;
 
     #ifdef __linux__
     if (execvpe(cmd[0], cmd, envp) < 0) {
