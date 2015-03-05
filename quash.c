@@ -429,7 +429,11 @@ int execPipedCommand(char*** cmdSet, int numCmds, char**envp)
   int j = 0;
   for (; j < numCmds; ++j) {
     pids[j] = fork();
-    if (pids[j] == 0) {
+    if (pids[j] < 0) {
+      fprintf(stderr, "\nError forking child %d. Error:%d\n", j, errno);
+      exit(EXIT_FAILURE);
+    }
+    else if (pids[j] == 0) {
       // if not first command, set up input pipe
       if (j != 0) {
         if (dup2(pipefds[(j - 1) * 2], STDIN_FILENO) < 0) {
@@ -498,13 +502,23 @@ int execSinglePipe(char*** cmdSet, char** envp)
   pid_t pid2;
   int pipefd[2];
  
-  pipe(pipefd);
+  if (pipe(pipefd) < 0) {
+    fprintf(stderr, "\nError creating pipe. Error:%d\n", errno);
+    return -1;
+  }
 
   pid1 = fork();
-  if(pid1 == 0) {
+  if (pid1 < 0) {
+    fprintf(stderr, "\nError forking child. Error:%d\n", errno);
+    exit(EXIT_FAILURE);
+  }
+  if (pid1 == 0) {
     // First child
     //set up pipe for stdout
-    dup2(pipefd[1], STDOUT_FILENO);
+    if (dup2(pipefd[1], STDOUT_FILENO) < 0) {
+      fprintf(stderr, "\nError setting stdout to pipe. Error%d\n", errno);
+      exit(EXIT_FAILURE);
+    }
     close(pipefd[0]);
 
     // exec command
@@ -525,10 +539,17 @@ int execSinglePipe(char*** cmdSet, char** envp)
    }
 
   pid2 = fork();
-  if(pid2 == 0) {
+  if (pid2 < 0) {
+    fprintf(stderr, "\nError forking child. Error:%d\n", errno);
+    exit(EXIT_FAILURE);
+  }
+  if (pid2 == 0) {
     //Second child
     //set up pipe for stdin
-    dup2(pipefd[0], STDIN_FILENO);
+    if (dup2(pipefd[0], STDIN_FILENO) < 0) {
+      fprintf(stderr, "\nError setting stdout to pipe. Error%d\n", errno);
+      exit(EXIT_FAILURE);
+    }
     close(pipefd[1]);
 
     //exec command
@@ -553,21 +574,21 @@ int execSinglePipe(char*** cmdSet, char** envp)
 
   if (waitpid(pid1, &status, 0) == -1) {
     fprintf(stderr, "\nError in child process %d. Error#%d\n", pid1, errno);
-    return 1;
+    return -1;
   }
   if (WIFEXITED(status)) {
     if (WEXITSTATUS(status) == EXIT_FAILURE) {
-      return 2;
+      return -1;
     }
   }
 
   if (waitpid(pid2, &status, 0) == -1) {
     fprintf(stderr, "\nError in child process %d. Error#%d\n", pid2, errno);
-    return 1;
+    return -1;
   }
   if (WIFEXITED(status)) {
     if (WEXITSTATUS(status) == EXIT_FAILURE) {
-      return 2;
+      return -1;
     }
   }
   return 0;
@@ -586,6 +607,10 @@ int execRedirectedCommand(char** cmd, char** envp, int numArgs, char redirectSym
   pid_t pid;
 
   pid = fork();
+  if (pid < 0) {
+    fprintf(stderr, "\nError creating pipe. Error:%d\n", errno);
+    return -1;
+  }
   if (pid == 0) {
     // child process
     // redirect input or output as needed
@@ -593,22 +618,22 @@ int execRedirectedCommand(char** cmd, char** envp, int numArgs, char redirectSym
       fd = open(cmd[numArgs - 1], O_RDONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
       if (fd < 0) {
         fprintf(stderr, "\nError opening %s. Error#%d\n", cmd[numArgs - 1], errno);
-        return 1;
+        exit(EXIT_FAILURE);
       }
       if (dup2(fd, STDIN_FILENO) < 0) {
         fprintf(stderr, "\nError resetting stdin to %s. Error#%d\n", cmd[numArgs -1], errno);
-        return 1;
+        exit(EXIT_FAILURE);
       }
     }
     else {
       fd = open(cmd[numArgs - 1], O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
       if (fd < 0) {
         fprintf(stderr, "\nError opening %s. Error#%d\n", cmd[numArgs - 1], errno);
-        return 1;
+        exit(EXIT_FAILURE);
       }
       if (dup2(fd, STDOUT_FILENO) < 0) {
         fprintf(stderr, "\nError resetting stdout to %s. Error#%d\n", cmd[numArgs -1], errno);
-        return 1;
+        exit(EXIT_FAILURE);
       }
     }
     close(fd);
@@ -636,11 +661,11 @@ int execRedirectedCommand(char** cmd, char** envp, int numArgs, char redirectSym
     // parent process
     if (waitpid(pid, &status, 0) == -1) {
       fprintf(stderr, "\nError in child process %d. Error#%d\n", pid, errno);
-      return 1;
+      return -1;
     }
     if (WIFEXITED(status)) {
       if (WEXITSTATUS(status) == EXIT_FAILURE) {
-        return 2;
+        return -1;
       }
     }
     return 0;
@@ -679,7 +704,8 @@ int jobs() {
   Note: if set is called with no additional
   args, path and home will be printed
 */
-int set(char** args) {
+int set(char** args) 
+{
   if (args[1] == NULL) {
     // print home & path environment variables
     char* path = getenv("PATH");
