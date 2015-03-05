@@ -1,3 +1,4 @@
+
 /*
   File: quash.c
   Authors: Roxanne Calderon & Lynne Coblammers
@@ -392,7 +393,10 @@ int execCommand(char** cmd, char** envp, int numArgs)
     pid_t pid;
    
     pid = fork();
-
+    if (pid < 0) {
+      fprintf(stderr, "\nError forking child. Error:%d\n", errno);
+      exit(EXIT_FAILURE);
+    }
     if (pid == 0) {
       // child process
       printf("\n[%d]%d  running in background\n",jobCount , pid); 
