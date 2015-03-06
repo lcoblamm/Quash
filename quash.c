@@ -112,6 +112,13 @@ int main(int argc, char* argv[], char** envp)
   }
 }
 
+/*
+  Executes quash with input from file of commands
+  @param argv: arguments passed into main
+  @param argc: number of arugments
+  @param envp: environment variables
+  @return: 0 for success, non-zero otherwise
+*/
 int execQuashFromFile(char** argv, int argc, char** envp)
 {
   int fd = open(argv[argc - 1], O_RDONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
@@ -136,7 +143,7 @@ int execQuashFromFile(char** argv, int argc, char** envp)
   Reads input and parses into a command & its arguments
   @param cmd: [in/out] preallocated char** of size numArgs, 
     will hold command and its args on return with NULL as the final value
-  @param numArgs: [in] number of args in cmd 
+  @param numArgs: [in/out] number of args in cmd 
   @return: 0 if command was successfully read in, non-zero for error
 */
 int getCommand(char*** cmd, int* numArgs)
@@ -222,7 +229,7 @@ int getCommand(char*** cmd, int* numArgs)
   @param separated: [out] array of command vectors
   @param numCmds: [out] number of separate commands
   @param separator: [in] symbol to separate commands by (e.g. |, <, >)
-  @return: 0 for success
+  @return: 0 for success, non-zero otherwise
 */
 int splitCommand(char** cmd, char*** separated[], int* numCmds, char* separator)
 {
@@ -289,8 +296,9 @@ int splitCommand(char** cmd, char*** separated[], int* numCmds, char* separator)
 }
 
 /*
-  Executes command by starting child process
+  Determines type of command to execute and calls approriated executor
   @param cmd: cmd with args to execute
+  @param numArgs: number of arguments in command (including command itself)
   @param envp: array of environment variables to pass to command
   @return: 0 for success, non-zero for failure
 */
@@ -369,7 +377,13 @@ int execCommand(char** cmd, int numArgs, char** envp)
   }
   return ret;
 }
-  
+
+/*
+  Executes command without pipes, redirection, or background instruction
+  @param cmd: cmd with args to execute
+  @param envp: environment variables
+  @return: 0 for success, non-zero otherwise
+*/
 int execSimpleCommand(char** cmd, char** envp)
 {
   int status;
@@ -412,12 +426,13 @@ int execSimpleCommand(char** cmd, char** envp)
     return 0;
   }
 }
+
 /*
   Executes command containing one or more pipes
   @param cmdSet: array of command vectors to execute
   @param numCmds: number of total piped commands
   @param envp: environment variables
-  @return: 0 for success
+  @return: 0 for success, non-zero otherwise
 */
 int execPipedCommand(char*** cmdSet, int numCmds, char** envp)
 {
@@ -502,8 +517,10 @@ int execPipedCommand(char*** cmdSet, int numCmds, char** envp)
 /*
   Executes command with redirect
   @param cmd: command to execute, including redirect & file
-  @param envp: environment variables
+  @param numArgs: number of arguments in command (including command itself)
   @param redirectSym: either < or >
+  @param envp: environment variables
+  @return: 0 for success, non-zero otherwise
 */
 int execRedirectedCommand(char** cmd, int numArgs, char redirectSym, char** envp)
 {
@@ -577,6 +594,12 @@ int execRedirectedCommand(char** cmd, int numArgs, char redirectSym, char** envp
   }
 }
 
+/*
+  Executes command as background process
+  @param cmd: command to execute with arguments
+  @param envp: environment variables
+  @return: 0 for success, non-zero otherwise
+*/
 int execBackgroundCommand(char** cmd, char** envp)
 {
   int status;
