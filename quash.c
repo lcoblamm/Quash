@@ -27,7 +27,8 @@ int killCMD(char** args);
 int cd(char** args);
 int jobs();
 int set(char** args);
-
+void preventProgramKill(int signal);
+void allowProgramKill(int signal); 
 struct job {
 	int pid;
 	int jobid;
@@ -38,7 +39,8 @@ struct job jobArray[1000];
 int jobCount = 0; 
 
 int main(int argc, char* argv[], char** envp)
-{
+{ 
+
   if (argc > 1) {
     // arguments to quash, check if redirect
     int redirectInFlag = 0;
@@ -59,7 +61,7 @@ int main(int argc, char* argv[], char** envp)
   int numArgs = 1;
   int ret = 0;
   char cwd[1024]; 
-  
+
   while (1) {
     if (getcwd(cwd, sizeof(cwd)) != 0) {
       printf(cwd);
@@ -79,7 +81,7 @@ int main(int argc, char* argv[], char** envp)
       // error getting command
       continue;
     }
-
+    
     // determine command type
     if (strcmp(cmd[0], "exit") == 0 || strcmp(cmd[0], "quit") == 0) {
       // free memory and exit
@@ -391,9 +393,10 @@ int execCommand(char** cmd, int numArgs, char** envp)
 */
 int execSimpleCommand(char** cmd, char** envp)
 {
+
+  signal(SIGINT, preventProgramKill);	 
   int status;
   pid_t pid;
-
   pid = fork();
   if (pid < 0) {
     fprintf(stderr, "\nError forking child. Error:%d\n", errno);
@@ -428,9 +431,19 @@ int execSimpleCommand(char** cmd, char** envp)
         return 2;
       }
     }
+    signal(SIGINT, allowProgramKill);
     return 0;
   }
 }
+
+void preventProgramKill(int signal){
+	printf("\n");
+
+} 
+void allowProgramKill(int signal){
+	printf("\n");
+	exit(0); 
+} 
 
 /*
   Executes command containing one or more pipes
