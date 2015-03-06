@@ -393,7 +393,7 @@ int execCommand(char** cmd, int numArgs, char** envp)
 */
 int execSimpleCommand(char** cmd, char** envp)
 {
-
+  //prevent control-c from killing quash
   signal(SIGINT, preventProgramKill);	 
   int status;
   pid_t pid;
@@ -431,15 +431,18 @@ int execSimpleCommand(char** cmd, char** envp)
         return 2;
       }
     }
+    //control c can terminate entire quash again
     signal(SIGINT, allowProgramKill);
     return 0;
   }
 }
 
+//when quash is execing a command, it cannot be killed.
 void preventProgramKill(int signal){
 	printf("\n");
 
 } 
+//when program is outside of execing a command, it can be killed
 void allowProgramKill(int signal){
 	printf("\n");
 	exit(0); 
@@ -630,15 +633,16 @@ int execBackgroundCommand(char** cmd, char** envp)
   }
   if (pid == 0) {
     // child process
-    printf("\n[%d]%d  running in background\n",jobCount , getpid()); 
+    //alert when process has begun and ended. 
+    int jc = jobCount; 
+    printf("\n[%d]%d  running in background\n",jc , getpid()); 
     execSimpleCommand(cmd, envp); 
-   // kill(getpid(),0); 
-
-    printf("[%d]%d finished %s\n", jobArray[jobCount].jobid, getpid(), cmd[0]); 
+    printf("[%d]%d finished %s\n", jc, getpid(), cmd[0]); 
 
 	exit(0);
   }
   else {
+    //create new job for job array with all job information
     struct job newjob;
     newjob.pid = pid; 
     newjob.jobid = jobCount;
@@ -660,7 +664,21 @@ int execBackgroundCommand(char** cmd, char** envp)
   
 }
   
-//i think this changes it i am not sure. 
+/* 
+  @param: once background child ends, alert the rest of the program the child has exited. 
+*/
+void exitChildHandler(int signal){
+     jobArray[jobCount - 1].finishedFlag = 1;
+}
+
+/* 
+  Changes directory
+  @param args: command from commandline
+  @return: 0 if successful
+
+  Note: if cd is called with no additional
+  args, will go to home
+*/
 int cd(char** args) 
 {
   if (args[1] == '\0') {
@@ -676,19 +694,16 @@ int cd(char** args)
   return 0;
 }
 
-void exitChildHandler(int signal){
-     jobArray[jobCount - 1].finishedFlag = 1;
 
 
-}
-
+//scroll through jobs, looking for all commands still active
 int jobs() 
 {
-	int i;
+  int i;
   for (i = 0; i < jobCount; i++) {
 	if(jobArray[i].finishedFlag == 0){
 		printf("[%d] %d %s \n", jobArray[i].jobid, jobArray[i].pid, jobArray[i].bgcommand); 
-}
+	}
   }
   return 0;
 }
@@ -741,30 +756,41 @@ int set(char** args)
   return 0;
 }
 
+/* 
+  Kill Command
+  @param args: command from commandline
+  @return: 0 if successful
+*/
 int killCMD(char** args){
+//if no arguments, print error
 if(args[1] == NULL){
 	printf("Error: two inputs expected, none recieved \n"); 
 	return 1; 
 }
+//if one argument, print error
 else{
     if(args[2] == NULL){
 	printf("Error: two inputs expected, one recieved \n"); 
 	return 1; 
     }
-    else{
+    else{	
+		//convert args to ints
 		int jobNumber; 
 		sscanf(args[2], "%d", &jobNumber); 
 		int killSig; 
 		sscanf(args[1], "%d", &killSig); 
 
+		//if job select is not empty, proceed
 		if(jobArray[jobNumber].pid != 0){
+			//just a warning about a 0 kill signal
 			if (killSig == 0){
 				printf("Kill signal of 0 will not kill process\n");
 			}
-		
+			//kill process
 			int pidToKill = jobArray[jobNumber].pid; 
 			kill(pidToKill,killSig); 
 		}
+		//if process does not exist print error
 		else{
 			printf("Error: process does not exist \n"); 
 			return 1; 
