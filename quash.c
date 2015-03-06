@@ -22,6 +22,7 @@ int execPipedCommand(char*** cmdSet, int numCmds, char** envp);
 int execRedirectedCommand(char** cmd, int numArgs, char redirectSym, char** envp);
 int execBackgroundCommand(char** cmd, char** envp);
 int execQuashFromFile(char** argv, int argc, char** envp);
+void exitChildHandler(int signal);
 
 int cd(char** args);
 int jobs();
@@ -31,8 +32,9 @@ struct job {
 	int pid;
 	int jobid;
 	char* bgcommand; 
+	int finishedFlag; 
 } ;
-struct job jobArray[100]; 
+struct job jobArray[1000]; 
 int jobCount = 0; 
 
 int main(int argc, char* argv[], char** envp)
@@ -581,7 +583,7 @@ int execBackgroundCommand(char** cmd, char** envp)
 {
   int status;
   pid_t pid;
- 
+
   pid = fork();
   if (pid < 0) {
     fprintf(stderr, "\nError forking child. Error:%d\n", errno);
@@ -589,12 +591,12 @@ int execBackgroundCommand(char** cmd, char** envp)
   }
   if (pid == 0) {
     // child process
-    printf("\n[%d]%d  running in background\n",jobCount , pid); 
+    printf("\n[%d]%d  running in background\n",jobCount , getpid()); 
     execSimpleCommand(cmd, envp); 
-    kill(pid,0); 
-    printf("[%d]%d finished %s\n", jobArray[jobCount + 1].jobid, pid, cmd[0]); 
-    jobCount--;
-    exit(0);
+   // kill(getpid(),0); 
+    printf("[%d]%d finished %s\n", jobArray[jobCount].jobid, getpid(), cmd[0]); 
+
+	exit(0);
   }
   else {
     struct job newjob;
@@ -602,11 +604,15 @@ int execBackgroundCommand(char** cmd, char** envp)
     newjob.jobid = jobCount;
     newjob.bgcommand = (char *) malloc(100);
     strcpy(newjob.bgcommand, cmd[0]);
+    newjob.finishedFlag = 0; 
     jobArray[jobCount] = newjob;
     jobCount++;
-    while (waitpid(pid, &status, WEXITED | WNOHANG) > 0) { }
-    return 0;
+    while (waitpid(pid, &status, WEXITED | WNOHANG) > 0){} 
+    signal(SIGCHLD,exitChildHandler);
+
+   return 0;
   } 
+  
 }
   
 //i think this changes it i am not sure. 
@@ -618,18 +624,26 @@ int cd(char** args)
   } 
   else { 
 	  if (chdir(args[1])!= 0) {
-      printf("cd: %s: No such file or directory\n", args[1]); 
+    	  	printf("cd: %s: No such file or directory\n", args[1]); 
 	  }
     return 1;
   } 
   return 0;
 }
 
+void exitChildHandler(int signal){
+     jobArray[jobCount - 1].finishedFlag = 1;
+    printf("%d \n",jobArray[jobCount - 1].finishedFlag); 
+
+}
+
 int jobs() 
 {
 	int i;
   for (i = 0; i < jobCount; i++) {
-		printf("[%d] %d %s \n", jobArray[i].jobid, jobArray[i].pid, jobArray[i].bgcommand);
+	if(jobArray[i].finishedFlag == 0){
+		printf("[%d] %d %s \n", jobArray[i].jobid, jobArray[i].pid, jobArray[i].bgcommand); 
+}
   }
   return 0;
 }
