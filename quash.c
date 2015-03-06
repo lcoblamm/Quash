@@ -19,7 +19,6 @@ int splitCommand(char** cmd, char*** unpiped[], int* numCmds, char* separator);
 int execCommand(char** cmd, int numArgs, char** envp); 
 int execSimpleCommand(char** cmd, char** envp);
 int execPipedCommand(char*** cmdSet, int numCmds, char** envp);
-int execSinglePipe(char*** cmdSet, char** envp);
 int execRedirectedCommand(char** cmd, int numArgs, char redirectSym, char** envp);
 int execBackgroundCommand(char** cmd, char** envp);
 int execQuashFromFile(char** argv, int argc, char** envp);
@@ -494,111 +493,6 @@ int execPipedCommand(char*** cmdSet, int numCmds, char** envp)
   for (; i < numCmds; ++i) {
     if (waitpid(pids[i], &status, 0) < 0) {
       fprintf(stderr, "\nError in child process %d. Error#%d\n", pids[i], errno);
-      return -1;
-    }
-  }
-  return 0;
-}
-
-/*
-  Executes piped command where only two commands are executed
-  @param cmdSet: vector containging two commands
-  @param envp: pointer to environment variables
-  @return: 0 for success
-  */
-int execSinglePipe(char*** cmdSet, char** envp)
-{
-  int status;
-  pid_t pid1;
-  pid_t pid2;
-  int pipefd[2];
- 
-  if (pipe(pipefd) < 0) {
-    fprintf(stderr, "\nError creating pipe. Error:%d\n", errno);
-    return -1;
-  }
-
-  pid1 = fork();
-  if (pid1 < 0) {
-    fprintf(stderr, "\nError forking child. Error:%d\n", errno);
-    exit(EXIT_FAILURE);
-  }
-  if (pid1 == 0) {
-    // First child
-    //set up pipe for stdout
-    if (dup2(pipefd[1], STDOUT_FILENO) < 0) {
-      fprintf(stderr, "\nError setting stdout to pipe. Error%d\n", errno);
-      exit(EXIT_FAILURE);
-    }
-    close(pipefd[0]);
-
-    // exec command
-    #ifdef __linux__
-    if (execvpe(cmdSet[0][0], cmdSet[0], envp) < 0) {
-    #elif __APPLE__
-    if (execvP(cmdSet[0][0], getenv("PATH"), cmdSet[0]) < 0) {
-    #endif
-      if (errno == 2) {
-        fprintf(stderr, "\n%s not found.\n", cmdSet[0][0]);
-      }
-      else {
-        fprintf(stderr, "\nError execing %s. Error#%d\n", cmdSet[0][0], errno);
-      }
-      exit(EXIT_FAILURE);
-    }
-    exit(0);
-   }
-
-  pid2 = fork();
-  if (pid2 < 0) {
-    fprintf(stderr, "\nError forking child. Error:%d\n", errno);
-    exit(EXIT_FAILURE);
-  }
-  if (pid2 == 0) {
-    //Second child
-    //set up pipe for stdin
-    if (dup2(pipefd[0], STDIN_FILENO) < 0) {
-      fprintf(stderr, "\nError setting stdout to pipe. Error%d\n", errno);
-      exit(EXIT_FAILURE);
-    }
-    close(pipefd[1]);
-
-    //exec command
-    #ifdef __linux__
-    if (execvpe(cmdSet[1][0], cmdSet[1], envp) < 0) {
-    #elif __APPLE__
-    if (execvP(cmdSet[1][0], getenv("PATH"), cmdSet[1]) < 0) {
-    #endif
-      if (errno == 2) {
-        fprintf(stderr, "\n%s not found.\n", cmdSet[1][0]);
-      }
-      else {
-        fprintf(stderr, "\nError execing %s. Error#%d\n", cmdSet[1][0], errno);
-      }
-      exit(EXIT_FAILURE);
-    }
-    exit(0);
-  }
-
-  close(pipefd[0]);
-  close(pipefd[1]);
-
-  if (waitpid(pid1, &status, 0) == -1) {
-    fprintf(stderr, "\nError in child process %d. Error#%d\n", pid1, errno);
-    return -1;
-  }
-  if (WIFEXITED(status)) {
-    if (WEXITSTATUS(status) == EXIT_FAILURE) {
-      return -1;
-    }
-  }
-
-  if (waitpid(pid2, &status, 0) == -1) {
-    fprintf(stderr, "\nError in child process %d. Error#%d\n", pid2, errno);
-    return -1;
-  }
-  if (WIFEXITED(status)) {
-    if (WEXITSTATUS(status) == EXIT_FAILURE) {
       return -1;
     }
   }
