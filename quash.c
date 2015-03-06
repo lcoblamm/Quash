@@ -13,19 +13,20 @@
 #include <fcntl.h>
 #include <signal.h>
 
-int getCommand(char*** cmd, int* numArgs);
-int splitCommand(char** cmd, char*** unpiped[], int* numCmds, char* separator);
+int getCommand(char** cmd[], int* numArgs);
+int getCommandsFromFile(char*** cmds[], int* numArgs[], int* numCmds);
+int splitCommand(char* cmd[], char*** separated[], int* numCmds, char* separator);
 
-int execCommand(char** cmd, int numArgs, char** envp); 
-int execSimpleCommand(char** cmd, char** envp);
-int execPipedCommand(char*** cmdSet, int numCmds, char** envp);
-int execRedirectedCommand(char** cmd, int numArgs, char redirectSym, char** envp);
-int execBackgroundCommand(char** cmd, char** envp);
-int execQuashFromFile(char** argv, int argc, char** envp);
+int execCommand(char* cmd[], int numArgs, char* envp[]); 
+int execSimpleCommand(char* cmd[], char* envp[]);
+int execPipedCommand(char** cmdSet[], int numCmds, char* envp[]);
+int execRedirectedCommand(char* cmd[], int numArgs, char redirectSym, char* envp[]);
+int execBackgroundCommand(char* cmd[], char* envp[]);
+int execQuashFromFile(char* argv[], int argc, char* envp[]);
 
-int cd(char** args);
+int cd(char* args[]);
 int jobs();
-int set(char** args);
+int set(char* args[]);
 
 struct job {
 	int pid;
@@ -35,23 +36,12 @@ struct job {
 struct job jobArray[100]; 
 int jobCount = 0; 
 
-int main(int argc, char* argv[], char** envp)
+int main(int argc, char* argv[], char* envp[])
 {
-  if (argc > 1) {
-    // arguments to quash, check if redirect
-    int redirectInFlag = 0;
-    int i = 0;
-    while (argv[i] != 0) {
-      if (strcmp(argv[i], "<") == 0) {
-        redirectInFlag = 1;
-      } 
-      i++;
-    }
-    if (redirectInFlag == 0) {
-      fprintf(stderr, "\nUsage: quash < \"<file.ext>\"\n");
-      return -1;
-    }
-    execQuashFromFile(argv, argc, envp);
+  if (!isatty((fileno(stdin)))) {
+    // input has been redirected
+    int ret = execQuashFromFile(argv, argc, envp);
+    return 0;
   }
 
   int numArgs = 1;
@@ -60,7 +50,7 @@ int main(int argc, char* argv[], char** envp)
   
   while (1) {
     if (getcwd(cwd, sizeof(cwd)) != 0) {
-      printf(cwd);
+      printf("%s", cwd);
       printf(" > "); 
     }	
     else {
@@ -119,34 +109,79 @@ int main(int argc, char* argv[], char** envp)
   @param envp: environment variables
   @return: 0 for success, non-zero otherwise
 */
-int execQuashFromFile(char** argv, int argc, char** envp)
+int execQuashFromFile(char* argv[], int argc, char* envp[])
 {
-  int fd = open(argv[argc - 1], O_RDONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-  if (fd < 0) {
-    fprintf(stderr, "\nError opening %s. Error#%d\n", argv[argc - 1], errno);
-    exit(EXIT_FAILURE);
-  }
-  if (dup2(fd, STDIN_FILENO) < 0) {
-    fprintf(stderr, "\nError resetting stdin to %s. Error#%d\n", argv[argc -1], errno);
-    exit(EXIT_FAILURE);
-  }
-  char** cmd = malloc(argc * sizeof(char*));
-  if (!cmd) {
+  int ret = 0;
+  int numCmds = 1;
+  int* numArgs = malloc(numCmds * sizeof(int));
+  if (!numArgs) {
     fprintf(stderr, "\nAllocation error\n, Error:%d\n", errno);
     return -1;
   }
+  memset(numArgs, '\0', numCmds);
+  char*** cmds = malloc(numCmds * sizeof(char**));
+  if (!cmds) {
+    fprintf(stderr, "\nAllocation error\n, Error:%d\n", errno);
+    return -1;
+  }
+  memset(cmds, '\0', numCmds);
+
+  // read in input
+  if (getCommandsFromFile(&cmds, &numArgs, &numCmds) != 0) {
+    // error getting command
+    return -1;
+  }
+
+  int i;
+  for(i = 0; i < numCmds; ++i) {
+    char** currCmd = cmds[i];
+    // determine command type
+    if (strcmp(currCmd[0], "exit") == 0 || strcmp(currCmd[0], "quit") == 0) {
+      // free memory and exit
+      int j = 0;
+      while (currCmd[j] != 0) {
+        free(currCmd[j]);
+        j++;
+      }
+      free(currCmd);
+      return 0;
+    }
+    else if (strcmp(currCmd[0], "cd") == 0) {
+      ret = cd(currCmd);
+    }
+    else if (strcmp(currCmd[0], "jobs") == 0) {
+      ret = jobs();
+    }
+    else if (strcmp(currCmd[0], "set") == 0) {
+      ret = set(currCmd);
+    }
+    else {
+      ret = execCommand(currCmd, numArgs[i], envp);
+    }
+  }
+
+  for (i = 0; i < numCmds; ++i) {
+    int j = 0;
+    for (; j < numArgs[i]; ++j) {
+      free(cmds[i][j]);
+      j++;
+    }
+    free(cmds[i]);
+    i++;
+  }
+  free(cmds);
 
   return 0;
 }
 
 /*
   Reads input and parses into a command & its arguments
-  @param cmd: [in/out] preallocated char** of size numArgs, 
+  @param cmd: [in/out] preallocated char** of size numArgs passed by reference, 
     will hold command and its args on return with NULL as the final value
   @param numArgs: [in/out] number of args in cmd 
   @return: 0 if command was successfully read in, non-zero for error
 */
-int getCommand(char*** cmd, int* numArgs)
+int getCommand(char** cmd[], int* numArgs)
 {
   int cmdLength = 128;
   char* unparsedCmd = malloc(cmdLength * sizeof(char));
@@ -223,6 +258,126 @@ int getCommand(char*** cmd, int* numArgs)
   return 0;
 }
 
+int getCommandsFromFile(char*** cmds[], int* numArgs[], int* numCmds)
+{
+  int endOfFile = 0;
+  int cmdNum = 0;
+  while (!endOfFile) {
+    int cmdLength = 128;
+    char* unparsedCmd = malloc(cmdLength * sizeof(char));
+    if (!unparsedCmd) {
+      fprintf(stderr, "\nAllocation error, Error:%d\n", errno);
+      return -1;
+    }
+    
+    int index = 0;
+    int c;
+    // read in command
+    do {
+      c = getchar();
+      if (c == EOF) {
+        if (index == 0 && cmdNum == 0) {
+          // no command in file
+          return -1; 
+        }
+        else if (index == 0) {
+          // all commands have been read
+          *numCmds = cmdNum;
+          return 0;
+        }
+        unparsedCmd[index] = '\0';
+        endOfFile = 1;
+        break;
+      }
+      else if(c == '\n') {
+        if (index == 0) {
+          // no command was entered
+          // start over on reading
+          continue;
+        }
+        // reached end of input, append null
+        unparsedCmd[index] = '\0';
+        break;
+      }
+      // add character to command
+      unparsedCmd[index] = c;
+      
+      index++;
+      if (index >= cmdLength) {
+        // allocate more space for the buffer
+        cmdLength += cmdLength;
+        unparsedCmd = realloc(unparsedCmd, cmdLength * sizeof(char));
+        if (!unparsedCmd) {
+          // error in reallocation
+          fprintf(stderr, "\nReallocation error, Error:%d\n", errno);
+          return -1;
+        }
+      }
+    } while (1);
+
+    // allocate command vector
+    int currNumArgs = 2;
+    (*cmds)[cmdNum] = malloc(currNumArgs * sizeof(char*));
+    if (!(*cmds)[cmdNum]) {
+      fprintf(stderr, "\nAllocation error, Error:%d\n", errno);
+      return -1;
+    }
+    memset((*cmds)[cmdNum], '\0', currNumArgs);
+
+    // parse command into invidual arguments
+    int argNum = 0;
+    char* arg = strtok(unparsedCmd, " ");
+    while (arg != 0) {
+      // allocate memory for string storage
+      (*cmds)[cmdNum][argNum] = malloc((strlen(arg) + 1) * sizeof(char));
+      if (!((*cmds)[cmdNum][argNum])) {
+        fprintf(stderr, "\nAllocation error, Error:%d\n", errno);
+        return -1;
+      }
+      memset((*cmds)[cmdNum][argNum], '\0', (strlen(arg) + 1));
+      // NOTE: need to copy because unparsedCmd goes out of scope
+      strcpy((*cmds)[cmdNum][argNum], arg);
+      argNum++;
+      if (argNum >= currNumArgs) {
+        // need to reallocate, double size
+        currNumArgs *= 2;
+        (*cmds)[cmdNum] = realloc((*cmds)[cmdNum], (currNumArgs) * sizeof(char*));
+        if (!(*cmds)[cmdNum]) {
+          // error in reallocations
+          fprintf(stderr, "\nReallocation error, Error:%d\n", errno);
+          return -1;
+        }
+      }
+      arg = strtok(0, " ");
+    }
+    // add one last null pointer
+    (*cmds)[cmdNum][argNum] = 0;
+    // set numArgs to be number of arguments for current command
+    (*numArgs)[cmdNum] = argNum;
+
+    free(unparsedCmd);
+    // check to see if we need to allocate for more commands
+    cmdNum++;
+    if (cmdNum >= *numCmds) {
+      *numCmds *= 2;
+      (*cmds) = realloc((*cmds), (*numCmds) * sizeof(char**));
+      if (!(*cmds)) {
+        // error in reallocations
+        fprintf(stderr, "\nReallocation error, Error:%d\n", errno);
+        return -1;
+      }
+      (*numArgs) = realloc((*numArgs), (*numCmds) * sizeof(int));
+      if (!(*numArgs)) {
+        // error in reallocations
+        fprintf(stderr, "\nReallocation error, Error:%d\n", errno);
+        return -1;
+      }
+    }
+  }
+  *numCmds = cmdNum;
+  return 0;
+}
+
 /*
   Splits command into several command vectors around separator provided
   @param cmd: [in] command to remove pipes from
@@ -231,7 +386,7 @@ int getCommand(char*** cmd, int* numArgs)
   @param separator: [in] symbol to separate commands by (e.g. |, <, >)
   @return: 0 for success, non-zero otherwise
 */
-int splitCommand(char** cmd, char*** separated[], int* numCmds, char* separator)
+int splitCommand(char* cmd[], char*** separated[], int* numCmds, char* separator)
 {
   int lastIndex = 0; // keeps track of beginning of last command copied
   int index = 0; // keeps track of current place in original command
@@ -302,7 +457,7 @@ int splitCommand(char** cmd, char*** separated[], int* numCmds, char* separator)
   @param envp: array of environment variables to pass to command
   @return: 0 for success, non-zero for failure
 */
-int execCommand(char** cmd, int numArgs, char** envp)
+int execCommand(char* cmd[], int numArgs, char* envp[])
 {
   // search command for pipes & redirects
   int redirectInFlag = 0;
@@ -384,7 +539,7 @@ int execCommand(char** cmd, int numArgs, char** envp)
   @param envp: environment variables
   @return: 0 for success, non-zero otherwise
 */
-int execSimpleCommand(char** cmd, char** envp)
+int execSimpleCommand(char* cmd[], char* envp[])
 {
   int status;
   pid_t pid;
@@ -434,7 +589,7 @@ int execSimpleCommand(char** cmd, char** envp)
   @param envp: environment variables
   @return: 0 for success, non-zero otherwise
 */
-int execPipedCommand(char*** cmdSet, int numCmds, char** envp)
+int execPipedCommand(char** cmdSet[], int numCmds, char* envp[])
 {
   int status;
   int numPipes = numCmds - 1;
@@ -522,7 +677,7 @@ int execPipedCommand(char*** cmdSet, int numCmds, char** envp)
   @param envp: environment variables
   @return: 0 for success, non-zero otherwise
 */
-int execRedirectedCommand(char** cmd, int numArgs, char redirectSym, char** envp)
+int execRedirectedCommand(char* cmd[], int numArgs, char redirectSym, char* envp[])
 {
   int status;
   int fd;
@@ -600,7 +755,7 @@ int execRedirectedCommand(char** cmd, int numArgs, char redirectSym, char** envp
   @param envp: environment variables
   @return: 0 for success, non-zero otherwise
 */
-int execBackgroundCommand(char** cmd, char** envp)
+int execBackgroundCommand(char* cmd[], char* envp[])
 {
   int status;
   pid_t pid;
@@ -633,7 +788,7 @@ int execBackgroundCommand(char** cmd, char** envp)
 }
   
 //i think this changes it i am not sure. 
-int cd(char** args) 
+int cd(char* args[])
 {
   if (args[1] == '\0') {
     char* home = getenv("HOME");
@@ -665,7 +820,7 @@ int jobs()
   Note: if set is called with no additional
   args, path and home will be printed
 */
-int set(char** args) 
+int set(char* args[])
 {
   if (args[1] == NULL) {
     // print home & path environment variables
