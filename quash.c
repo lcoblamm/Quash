@@ -28,12 +28,18 @@ int cd(char* args[]);
 int jobs();
 int set(char* args[]);
 
+void exitChildHandler(int signal);
+int killCMD(char** args); 
+void preventProgramKill(int signal);
+void allowProgramKill(int signal); 
+
 struct job {
 	int pid;
 	int jobid;
 	char* bgcommand; 
+	int finishedFlag; 
 } ;
-struct job jobArray[100]; 
+struct job jobArray[1000]; 
 int jobCount = 0; 
 
 int main(int argc, char* argv[], char* envp[])
@@ -47,7 +53,7 @@ int main(int argc, char* argv[], char* envp[])
   int numArgs = 1;
   int ret = 0;
   char cwd[1024]; 
-  
+
   while (1) {
     if (getcwd(cwd, sizeof(cwd)) != 0) {
       printf("%s", cwd);
@@ -67,7 +73,7 @@ int main(int argc, char* argv[], char* envp[])
       // error getting command
       continue;
     }
-
+    
     // determine command type
     if (strcmp(cmd[0], "exit") == 0 || strcmp(cmd[0], "quit") == 0) {
       // free memory and exit
@@ -87,6 +93,9 @@ int main(int argc, char* argv[], char* envp[])
     }
     else if (strcmp(cmd[0], "set") == 0) {
       ret = set(cmd);
+    }
+    else if (strcmp(cmd[0], "kill") == 0) {
+      ret = killCMD(cmd);
     }
     else {
       ret = execCommand(cmd, numArgs, envp);
@@ -258,6 +267,13 @@ int getCommand(char** cmd[], int* numArgs)
   return 0;
 }
 
+/*
+  Reads one or more commands from a file separated by new line characters
+  @param cmds: [in/out] Preallocated array of string arrays passed in by refernece
+  @param numArgs: [in/out] Preallocated array of number of arguments for each command
+  @param numCmds: [in/out] Number of total commands read from file
+  @return: 0 for success, non zero otherwise
+*/
 int getCommandsFromFile(char*** cmds[], int* numArgs[], int* numCmds)
 {
   int endOfFile = 0;
@@ -541,9 +557,10 @@ int execCommand(char* cmd[], int numArgs, char* envp[])
 */
 int execSimpleCommand(char* cmd[], char* envp[])
 {
+
+  signal(SIGINT, preventProgramKill);	 
   int status;
   pid_t pid;
-
   pid = fork();
   if (pid < 0) {
     fprintf(stderr, "\nError forking child. Error:%d\n", errno);
@@ -578,9 +595,19 @@ int execSimpleCommand(char* cmd[], char* envp[])
         return 2;
       }
     }
+    signal(SIGINT, allowProgramKill);
     return 0;
   }
 }
+
+void preventProgramKill(int signal){
+	printf("\n");
+
+} 
+void allowProgramKill(int signal){
+	printf("\n");
+	exit(0); 
+} 
 
 /*
   Executes command containing one or more pipes
@@ -759,7 +786,7 @@ int execBackgroundCommand(char* cmd[], char* envp[])
 {
   int status;
   pid_t pid;
- 
+
   pid = fork();
   if (pid < 0) {
     fprintf(stderr, "\nError forking child. Error:%d\n", errno);
@@ -767,12 +794,13 @@ int execBackgroundCommand(char* cmd[], char* envp[])
   }
   if (pid == 0) {
     // child process
-    printf("\n[%d]%d  running in background\n",jobCount , pid); 
+    printf("\n[%d]%d  running in background\n",jobCount , getpid()); 
     execSimpleCommand(cmd, envp); 
-    kill(pid,0); 
-    printf("[%d]%d finished %s\n", jobArray[jobCount + 1].jobid, pid, cmd[0]); 
-    jobCount--;
-    exit(0);
+   // kill(getpid(),0); 
+
+    printf("[%d]%d finished %s\n", jobArray[jobCount].jobid, getpid(), cmd[0]); 
+
+	exit(0);
   }
   else {
     struct job newjob;
@@ -780,11 +808,20 @@ int execBackgroundCommand(char* cmd[], char* envp[])
     newjob.jobid = jobCount;
     newjob.bgcommand = (char *) malloc(100);
     strcpy(newjob.bgcommand, cmd[0]);
+    newjob.finishedFlag = 0; 
     jobArray[jobCount] = newjob;
     jobCount++;
-    while (waitpid(pid, &status, WEXITED | WNOHANG) > 0) { }
-    return 0;
+    signal(SIGCHLD,exitChildHandler);
+    while (waitpid(pid, &status,WNOHANG) > 0){} 
+   if (WIFEXITED(status)) {
+       if (WEXITSTATUS(status) == EXIT_FAILURE) {
+        return -1;
+      }
+   }
+
+   return 0;
   } 
+  
 }
   
 //i think this changes it i am not sure. 
@@ -796,18 +833,26 @@ int cd(char* args[])
   } 
   else { 
 	  if (chdir(args[1])!= 0) {
-      printf("cd: %s: No such file or directory\n", args[1]); 
+    	  	printf("cd: %s: No such file or directory\n", args[1]); 
 	  }
     return 1;
   } 
   return 0;
 }
 
+void exitChildHandler(int signal){
+     jobArray[jobCount - 1].finishedFlag = 1;
+
+
+}
+
 int jobs() 
 {
 	int i;
   for (i = 0; i < jobCount; i++) {
-		printf("[%d] %d %s \n", jobArray[i].jobid, jobArray[i].pid, jobArray[i].bgcommand);
+	if(jobArray[i].finishedFlag == 0){
+		printf("[%d] %d %s \n", jobArray[i].jobid, jobArray[i].pid, jobArray[i].bgcommand); 
+}
   }
   return 0;
 }
@@ -859,3 +904,37 @@ int set(char* args[])
   }
   return 0;
 }
+
+int killCMD(char** args){
+if(args[1] == NULL){
+	printf("Error: two inputs expected, none recieved \n"); 
+	return 1; 
+}
+else{
+    if(args[2] == NULL){
+	printf("Error: two inputs expected, one recieved \n"); 
+	return 1; 
+    }
+    else{
+		int jobNumber; 
+		sscanf(args[2], "%d", &jobNumber); 
+		int killSig; 
+		sscanf(args[1], "%d", &killSig); 
+
+		if(jobArray[jobNumber].pid != 0){
+			if (killSig == 0){
+				printf("Kill signal of 0 will not kill process\n");
+			}
+		
+			int pidToKill = jobArray[jobNumber].pid; 
+			kill(pidToKill,killSig); 
+		}
+		else{
+			printf("Error: process does not exist \n"); 
+			return 1; 
+		}
+   }
+
+}  	
+return 0; 
+} 
