@@ -16,11 +16,13 @@
 int getCommand(char*** cmd, int* numArgs);
 int splitCommand(char** cmd, char*** unpiped[], int* numCmds, char* separator);
 
-int execCommand(char** cmd, char** envp, int numArgs); 
+int execCommand(char** cmd, int numArgs, char** envp); 
+int execSimpleCommand(char** cmd, char** envp);
 int execPipedCommand(char*** cmdSet, int numCmds, char** envp);
 int execSinglePipe(char*** cmdSet, char** envp);
-int execRedirectedCommand(char** cmd, char** envp, int numArgs, char redirectSym);
-int execQuashFromFile();
+int execRedirectedCommand(char** cmd, int numArgs, char redirectSym, char** envp);
+int execBackgroundCommand(char** cmd, char** envp);
+int execQuashFromFile(char** argv, int argc, char** envp);
 
 int cd(char** args);
 int jobs();
@@ -36,10 +38,8 @@ int jobCount = 0;
 
 int main(int argc, char* argv[], char** envp)
 {
-  int numArgs = 1;
-  int ret = 0;
   if (argc > 1) {
-    // redirect input to file
+    // arguments to quash, check if redirect
     int redirectInFlag = 0;
     int i = 0;
     while (argv[i] != 0) {
@@ -52,21 +52,11 @@ int main(int argc, char* argv[], char** envp)
       fprintf(stderr, "\nUsage: quash < \"<file.ext>\"\n");
       return -1;
     }
-    int fd = open(argv[argc - 1], O_RDONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-    if (fd < 0) {
-      fprintf(stderr, "\nError opening %s. Error#%d\n", argv[argc - 1], errno);
-      exit(EXIT_FAILURE);
-    }
-    if (dup2(fd, STDIN_FILENO) < 0) {
-      fprintf(stderr, "\nError resetting stdin to %s. Error#%d\n", argv[argc -1], errno);
-      exit(EXIT_FAILURE);
-    }
-    char** cmd = malloc(numArgs * sizeof(char*));
-    if (!cmd) {
-      fprintf(stderr, "\nAllocation error\n, Error:%d\n", errno);
-      return -1;
-    }
+    execQuashFromFile(argv, argc, envp);
   }
+
+  int numArgs = 1;
+  int ret = 0;
   char cwd[1024]; 
   
   while (1) {
@@ -89,27 +79,7 @@ int main(int argc, char* argv[], char** envp)
       continue;
     }
 
-    // search command for pipes & redirects
-    int redirectInFlag = 0;
-    int redirectOutFlag = 0;
-    int pipeFlag = 0;
-    int i = 0;
-    while (cmd[i] != 0) {
-      if (strcmp(cmd[i], "|") == 0) {
-        pipeFlag = 1;
-      }
-      else if (strcmp(cmd[i], "<") == 0) {
-        redirectInFlag = 1;
-      }
-      else if (strcmp(cmd[i], ">") == 0) {
-        redirectOutFlag = 1;
-      }
-      i++;
-    }
-
-    
     // determine command type
-
     if (strcmp(cmd[0], "exit") == 0 || strcmp(cmd[0], "quit") == 0) {
       // free memory and exit
       int i = 0;
@@ -129,60 +99,38 @@ int main(int argc, char* argv[], char** envp)
     else if (strcmp(cmd[0], "set") == 0) {
       ret = set(cmd);
     }
-    else if (pipeFlag == 1) {
-      // parse into pieces between pipes
-      char*** unpipedCmds = malloc(numArgs * sizeof(char**));
-      if (!unpipedCmds) {
-        fprintf(stderr, "\nAllocation error\n, Error:%d\n", errno);
-        continue;
-      }
-      memset(unpipedCmds, '\0', numArgs * sizeof(char**));
-      int numCmds;
-      if (splitCommand(cmd, &unpipedCmds, &numCmds, "|") != 0) {
-        fprintf(stderr, "\nError in splitCommand\n");
-        continue;
-      }
-      // call execPipedCommand with array of commands and number of commands
-      if (numCmds == 2) {
-        ret = execSinglePipe(unpipedCmds, envp);
-      }
-      else {
-        ret = execPipedCommand(unpipedCmds, numCmds, envp);
-      }
-      // free up memory
-      int i = 0;
-      while (unpipedCmds[i] != 0) {
-        int j = 0;
-        while (unpipedCmds[i][j] != 0) {
-          free(unpipedCmds[i][j]);
-          j++;
-        }
-        free(unpipedCmds[i]);
-        i++;
-      }
-      free(unpipedCmds);
-    }
-    else if (redirectInFlag == 1 || redirectOutFlag == 1) {
-      if (redirectInFlag == 1) {
-        ret = execRedirectedCommand(cmd, envp, numArgs, '<');
-      }
-      else {
-        // redirecting out
-        ret = execRedirectedCommand(cmd, envp, numArgs, '>');
-      }
-    }
     else {
-      execCommand(cmd, envp, numArgs);
+      ret = execCommand(cmd, numArgs, envp);
     }
 
     // free memory before getting next command
-    i = 0;
+    int i = 0;
     while (cmd[i] != 0) {
       free(cmd[i]);
       i++;
     }
     free(cmd);
   }
+}
+
+int execQuashFromFile(char** argv, int argc, char** envp)
+{
+  int fd = open(argv[argc - 1], O_RDONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+  if (fd < 0) {
+    fprintf(stderr, "\nError opening %s. Error#%d\n", argv[argc - 1], errno);
+    exit(EXIT_FAILURE);
+  }
+  if (dup2(fd, STDIN_FILENO) < 0) {
+    fprintf(stderr, "\nError resetting stdin to %s. Error#%d\n", argv[argc -1], errno);
+    exit(EXIT_FAILURE);
+  }
+  char** cmd = malloc(argc * sizeof(char*));
+  if (!cmd) {
+    fprintf(stderr, "\nAllocation error\n, Error:%d\n", errno);
+    return -1;
+  }
+
+  return 0;
 }
 
 /*
@@ -346,122 +294,125 @@ int splitCommand(char** cmd, char*** separated[], int* numCmds, char* separator)
   @param cmd: cmd with args to execute
   @param envp: array of environment variables to pass to command
   @return: 0 for success, non-zero for failure
-
-  TODO: make sure all syscalls have error checks
 */
-int execCommand(char** cmd, char** envp, int numArgs) 
+int execCommand(char** cmd, int numArgs, char** envp)
 {
-  int bgFlag = 0 ; 
-  int i = 0; 
-  char* background;
-  int destination_size = 0;
-
-  while (cmd[i] != NULL) {
-    background = strchr(cmd[i], '&');
-    i++;
-  } 
-
-  #ifdef __linux__
-  if (background != NULL) {
-   	bgFlag = 1; 
-   	int i = 0;
-
-   	while (cmd[i + 1] != NULL) {
-      if(strcmp(cmd[i], "&") != 0) {
-        strcpy(cmd[i], cmd[i]); 
-      }
-      else {
-        strcpy(cmd[i + 1], cmd[i]); 
-        i++;
-      } 
-      i++; 
+  // search command for pipes & redirects
+  int redirectInFlag = 0;
+  int redirectOutFlag = 0;
+  int pipeFlag = 0;
+  int bgFlag = 0; 
+  int i = 0;
+  while (cmd[i] != 0) {
+    if (strcmp(cmd[i], "|") == 0) {
+      pipeFlag = 1;
     }
-    cmd[i] = NULL; 
-  }    
-  #elif __APPLE__
-  if (background != NULL) {
-    bgFlag = 1;
+    else if (strcmp(cmd[i], "<") == 0) {
+      redirectInFlag = 1;
+    }
+    else if (strcmp(cmd[i], ">") == 0) {
+      redirectOutFlag = 1;
+    }
+    else if (strcmp(cmd[i], "&") == 0) {
+      bgFlag = 1;
+    }
+    i++;
+  }
 
+  int ret = 0;
+  // we have access to numArgs here and this will be portable
+  if (bgFlag) {
     // replace final & with null
     cmd[numArgs - 1] = 0;
-  }
-  #endif
-  else bgFlag = 0;
-
-  if (bgFlag == 0) {
-    int status;
-    pid_t pid;
-
-    pid = fork();
-    if (pid < 0) {
-      fprintf(stderr, "\nError forking child. Error:%d\n", errno);
-      exit(EXIT_FAILURE);
-    }
-    if (pid == 0) {
-      // child process
-      #ifdef __linux__
-      if (execvpe(cmd[0], cmd, envp) < 0) {
-      #endif
-      #ifdef __APPLE__
-      if (execvP(cmd[0], getenv("PATH"), cmd) < 0) {
-      #endif
-        if (errno == 2) {
-          fprintf(stderr, "\n%s not found.\n", cmd[0]);
-        }
-        else {
-          fprintf(stderr, "\nError execing %s. Error#%d\n", cmd[0], errno);
-        }
-        exit(EXIT_FAILURE);
-      }
-      exit(0);
-    }
-    else {
-      // parent process
-      if (waitpid(pid, &status, 0) < 0) {
-        fprintf(stderr, "\nError in child process %d. Error#%d\n", pid, errno);
-        return 1;
-      }
-      if (WIFEXITED(status)) {
-        if (WEXITSTATUS(status) == EXIT_FAILURE) {
-          return 2;
-        }
-      }
-      return 0;
-    }
-  }
-
-  if (bgFlag == 1) {
-    int status;
-    pid_t pid;
-   
-    pid = fork();
-    if (pid < 0) {
-      fprintf(stderr, "\nError forking child. Error:%d\n", errno);
-      exit(EXIT_FAILURE);
-    }
-    if (pid == 0) {
-      // child process
-      printf("\n[%d]%d  running in background\n",jobCount , pid); 
-      execCommand(cmd, envp, numArgs - 1); 
-      kill(pid,0); 
-      printf("[%d]%d finished %s\n", jobArray[jobCount + 1].jobid, pid, cmd[0]); 
-      jobCount--;
-      exit(0);
-    }
-    else {
-      struct job newjob;
-		  newjob.pid = pid; 
-		  newjob.jobid = jobCount;
-		  newjob.bgcommand = (char *) malloc(100);
-		  strcpy(newjob.bgcommand, cmd[0]);
- 	    jobArray[jobCount] = newjob;
-      jobCount++;
-   	  while (waitpid(pid, &status, WEXITED | WNOHANG) > 0) { }
-      return 0;
-    } 
+    ret = execBackgroundCommand(cmd, envp);
   } 
+  else if (pipeFlag) {
+    // parse into pieces between pipes
+    char*** unpipedCmds = malloc(numArgs * sizeof(char**));
+    if (!unpipedCmds) {
+      fprintf(stderr, "\nAllocation error\n, Error:%d\n", errno);
+      return -1;
+    }
+    memset(unpipedCmds, '\0', numArgs * sizeof(char**));
+    int numCmds;
+    if (splitCommand(cmd, &unpipedCmds, &numCmds, "|") != 0) {
+      fprintf(stderr, "\nError in splitCommand\n");
+      return -1;
+    }
+
+    // call execPipedCommand with array of commands and number of commands
+    ret = execPipedCommand(unpipedCmds, numCmds, envp);
+
+    // free up memory
+    int i = 0;
+    while (unpipedCmds[i] != 0) {
+      int j = 0;
+      while (unpipedCmds[i][j] != 0) {
+        free(unpipedCmds[i][j]);
+        j++;
+      }
+      free(unpipedCmds[i]);
+      i++;
+    }
+    free(unpipedCmds);
+  }
+  else if (redirectInFlag || redirectOutFlag) {
+    if (redirectInFlag == 1) {
+      ret = execRedirectedCommand(cmd, numArgs, '<', envp);
+    }
+    else {
+      // redirecting out
+      ret = execRedirectedCommand(cmd, numArgs, '>', envp);
+    }
+  }
+  else {
+    ret = execSimpleCommand(cmd, envp);
+  }
+  return ret;
 }
   
+int execSimpleCommand(char** cmd, char** envp)
+{
+  int status;
+  pid_t pid;
+
+  pid = fork();
+  if (pid < 0) {
+    fprintf(stderr, "\nError forking child. Error:%d\n", errno);
+    exit(EXIT_FAILURE);
+  }
+  if (pid == 0) {
+    // child process
+    #ifdef __linux__
+    if (execvpe(cmd[0], cmd, envp) < 0) {
+    #endif
+    #ifdef __APPLE__
+    if (execvP(cmd[0], getenv("PATH"), cmd) < 0) {
+    #endif
+      if (errno == 2) {
+        fprintf(stderr, "\n%s not found.\n", cmd[0]);
+      }
+      else {
+        fprintf(stderr, "\nError execing %s. Error#%d\n", cmd[0], errno);
+      }
+      exit(EXIT_FAILURE);
+    }
+    exit(0);
+  }
+  else {
+    // parent process
+    if (waitpid(pid, &status, 0) < 0) {
+      fprintf(stderr, "\nError in child process %d. Error#%d\n", pid, errno);
+      return 1;
+    }
+    if (WIFEXITED(status)) {
+      if (WEXITSTATUS(status) == EXIT_FAILURE) {
+        return 2;
+      }
+    }
+    return 0;
+  }
+}
 /*
   Executes command containing one or more pipes
   @param cmdSet: array of command vectors to execute
@@ -469,7 +420,7 @@ int execCommand(char** cmd, char** envp, int numArgs)
   @param envp: environment variables
   @return: 0 for success
 */
-int execPipedCommand(char*** cmdSet, int numCmds, char**envp)
+int execPipedCommand(char*** cmdSet, int numCmds, char** envp)
 {
   int status;
   int numPipes = numCmds - 1;
@@ -660,7 +611,7 @@ int execSinglePipe(char*** cmdSet, char** envp)
   @param envp: environment variables
   @param redirectSym: either < or >
 */
-int execRedirectedCommand(char** cmd, char** envp, int numArgs, char redirectSym)
+int execRedirectedCommand(char** cmd, int numArgs, char redirectSym, char** envp)
 {
   int status;
   int fd;
@@ -730,6 +681,38 @@ int execRedirectedCommand(char** cmd, char** envp, int numArgs, char redirectSym
     }
     return 0;
   }
+}
+
+int execBackgroundCommand(char** cmd, char** envp)
+{
+  int status;
+  pid_t pid;
+ 
+  pid = fork();
+  if (pid < 0) {
+    fprintf(stderr, "\nError forking child. Error:%d\n", errno);
+    exit(EXIT_FAILURE);
+  }
+  if (pid == 0) {
+    // child process
+    printf("\n[%d]%d  running in background\n",jobCount , pid); 
+    execSimpleCommand(cmd, envp); 
+    kill(pid,0); 
+    printf("[%d]%d finished %s\n", jobArray[jobCount + 1].jobid, pid, cmd[0]); 
+    jobCount--;
+    exit(0);
+  }
+  else {
+    struct job newjob;
+    newjob.pid = pid; 
+    newjob.jobid = jobCount;
+    newjob.bgcommand = (char *) malloc(100);
+    strcpy(newjob.bgcommand, cmd[0]);
+    jobArray[jobCount] = newjob;
+    jobCount++;
+    while (waitpid(pid, &status, WEXITED | WNOHANG) > 0) { }
+    return 0;
+  } 
 }
   
 //i think this changes it i am not sure. 
