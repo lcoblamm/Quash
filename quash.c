@@ -811,20 +811,20 @@ int execBackgroundCommand(char* cmd[], char* envp[])
     newjob.finishedFlag = 0; 
     jobArray[jobCount] = newjob;
     jobCount++;
-    signal(SIGCHLD,exitChildHandler);
+    signal(SIGCHLD, exitChildHandler);
     while (waitpid(pid, &status,WNOHANG) > 0){} 
-   if (WIFEXITED(status)) {
+    if (WIFEXITED(status)) {
        if (WEXITSTATUS(status) == EXIT_FAILURE) {
         return -1;
       }
-   }
+    }
 
    return 0;
   } 
   
 }
   
-//i think this changes it i am not sure. 
+
 int cd(char* args[])
 {
   if (args[1] == '\0') {
@@ -840,19 +840,18 @@ int cd(char* args[])
   return 0;
 }
 
-void exitChildHandler(int signal){
-     jobArray[jobCount - 1].finishedFlag = 1;
-
-
+void exitChildHandler(int signal)
+{
+  jobArray[jobCount - 1].finishedFlag = 1;
 }
 
 int jobs() 
 {
 	int i;
   for (i = 0; i < jobCount; i++) {
-	if(jobArray[i].finishedFlag == 0){
+    if(jobArray[i].finishedFlag == 0){
 		printf("[%d] %d %s \n", jobArray[i].jobid, jobArray[i].pid, jobArray[i].bgcommand); 
-}
+    }
   }
   return 0;
 }
@@ -905,36 +904,36 @@ int set(char* args[])
   return 0;
 }
 
-int killCMD(char** args){
-if(args[1] == NULL){
-	printf("Error: two inputs expected, none recieved \n"); 
-	return 1; 
-}
-else{
-    if(args[2] == NULL){
-	printf("Error: two inputs expected, one recieved \n"); 
-	return 1; 
+int killCMD(char** args)
+{
+  if (args[1] == NULL) {
+    printf("Error: two inputs expected, none recieved \n");
+    return 1; 
+  }
+  else {
+    if (args[2] == NULL) {
+      printf("Error: two inputs expected, one recieved \n"); 
+      return 1; 
     }
-    else{
-		int jobNumber; 
-		sscanf(args[2], "%d", &jobNumber); 
-		int killSig; 
-		sscanf(args[1], "%d", &killSig); 
+    else {
+		  int jobNumber; 
+		  sscanf(args[2], "%d", &jobNumber); 
+		  int killSig; 
+		  sscanf(args[1], "%d", &killSig); 
 
-		if(jobArray[jobNumber].pid != 0){
-			if (killSig == 0){
-				printf("Kill signal of 0 will not kill process\n");
-			}
-		
-			int pidToKill = jobArray[jobNumber].pid; 
-			kill(pidToKill,killSig); 
-		}
-		else{
-			printf("Error: process does not exist \n"); 
-			return 1; 
-		}
-   }
+		  if (jobArray[jobNumber].pid != 0) {
+        if (killSig == 0) {
+				  printf("Kill signal of 0 will not kill process\n");
+        }
+        int pidToKill = jobArray[jobNumber].pid; 
+        kill(pidToKill,killSig); 
+		  }
+		  else {
+        printf("Error: process does not exist \n"); 
+        return 1; 
+		  }
+    }
 
-}  	
-return 0; 
+  }  	
+  return 0; 
 } 
