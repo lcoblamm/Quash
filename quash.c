@@ -515,11 +515,9 @@ int execCommand(char* cmd[], int numArgs, char* envp[])
   if (bgFlag) {
     // replace final & with null
     //cmd[numArgs - 1] = 0;
-    char** newCmd = malloc(numArgs * sizeof(char*));
-    memcpy(newCmd, cmd, (numArgs - 1));
+    char** newCmd = cmd;
     newCmd[numArgs - 1] = 0;
     ret = execBackgroundCommand(newCmd, envp);
-    free(newCmd);
   } 
   else if (redirectInFlag || redirectOutFlag) {
     if (redirectInFlag == 1) {
@@ -862,7 +860,7 @@ int execBackgroundCommand(char* cmd[], char* envp[])
     jobCount++;
     // since jobs have been set up, signals can now unblock
     sigprocmask(SIG_UNBLOCK, &mask, &oldMask);
-    waitpid(pid, &status, WNOHANG);
+    while (waitpid(pid, &status, WNOHANG) > 0) {} 
     return 0;
   } 
   
