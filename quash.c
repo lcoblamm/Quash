@@ -84,8 +84,8 @@ int main(int argc, char* argv[], char* envp[])
     // determine command type
     if (strcmp(cmd[0], "exit") == 0 || strcmp(cmd[0], "quit") == 0) {
       // free memory and exit
-      int i = 0;
-      while (cmd[i] != 0) {
+      int i;
+      for (i = 0; i < numArgs; ++i) {
         free(cmd[i]);
         i++;
       }
@@ -109,8 +109,8 @@ int main(int argc, char* argv[], char* envp[])
     }
 
     // free memory before getting next command
-    int i = 0;
-    while (cmd[i] != 0) {
+    int i;
+    for (i = 0; i < numArgs; ++i) {
       free(cmd[i]);
       i++;
     }
