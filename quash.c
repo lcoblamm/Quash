@@ -2,7 +2,7 @@
 /*
   File: quash.c
   Authors: Roxanne Calderon & Lynne Coblammers
-  EECS 678 Project 1
+  EECS 678 Project 1: Quite a Shell
 */
 
 #include <stdio.h>
