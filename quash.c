@@ -28,7 +28,7 @@ int cd(char* args[]);
 int jobs();
 int set(char* args[]);
 
-void exitChildHandler(int signal);
+void exitChildHandler(int signal, siginfo_t* info, void* ctx);
 int killCMD(char** args); 
 void preventProgramKill(int signal);
 void allowProgramKill(int signal); 
@@ -42,15 +42,21 @@ struct job {
 struct job jobArray[1000]; 
 int jobCount = 0; 
 
+// used for blocking signals
+sigset_t mask;
+sigset_t oldMask;
+
 int main(int argc, char* argv[], char* envp[])
 {
+  sigemptyset(&mask);
+  sigaddset(&mask, SIGCHLD);
   if (!isatty((fileno(stdin)))) {
     // input has been redirected (input not from terminal)
     int ret = execQuashFromFile(argv, argc, envp);
     return 0;
   }
 
-  int numArgs = 1;
+  int numArgs = 4;
   int ret = 0;
   char cwd[1024]; 
 
@@ -73,7 +79,7 @@ int main(int argc, char* argv[], char* envp[])
       // error getting command
       continue;
     }
-    
+
     // determine command type
     if (strcmp(cmd[0], "exit") == 0 || strcmp(cmd[0], "quit") == 0) {
       // free memory and exit
@@ -504,6 +510,15 @@ int execCommand(char* cmd[], int numArgs, char* envp[])
     cmd[numArgs - 1] = 0;
     ret = execBackgroundCommand(cmd, envp);
   } 
+  else if (redirectInFlag || redirectOutFlag) {
+    if (redirectInFlag == 1) {
+      ret = execRedirectedCommand(cmd, numArgs, '<', envp);
+    }
+    else {
+      // redirecting out
+      ret = execRedirectedCommand(cmd, numArgs, '>', envp);
+    }
+  }
   else if (pipeFlag) {
     // parse into pieces between pipes
     char*** unpipedCmds = malloc(numArgs * sizeof(char**));
@@ -533,15 +548,6 @@ int execCommand(char* cmd[], int numArgs, char* envp[])
       i++;
     }
     free(unpipedCmds);
-  }
-  else if (redirectInFlag || redirectOutFlag) {
-    if (redirectInFlag == 1) {
-      ret = execRedirectedCommand(cmd, numArgs, '<', envp);
-    }
-    else {
-      // redirecting out
-      ret = execRedirectedCommand(cmd, numArgs, '>', envp);
-    }
   }
   else {
     ret = execSimpleCommand(cmd, envp);
@@ -588,6 +594,7 @@ int execSimpleCommand(char* cmd[], char* envp[])
     // parent process
     if (waitpid(pid, &status, 0) < 0) {
       fprintf(stderr, "\nError in child process %d. Error#%d\n", pid, errno);
+      signal(SIGINT, allowProgramKill);
       return 1;
     }
     if (WIFEXITED(status)) {
@@ -695,6 +702,7 @@ int execPipedCommand(char** cmdSet[], int numCmds, char* envp[])
   for (; i < numCmds; ++i) {
     if (waitpid(pids[i], &status, 0) < 0) {
       fprintf(stderr, "\nError in child process %d. Error#%d\n", pids[i], errno);
+      signal(SIGINT, allowProgramKill);
       return -1;
     }
   }
@@ -792,6 +800,16 @@ int execBackgroundCommand(char* cmd[], char* envp[])
   int status;
   pid_t pid;
 
+  // create signal handler for child
+  struct sigaction act;
+  act.sa_sigaction = *exitChildHandler;
+  act.sa_flags = SA_SIGINFO | SA_RESTART;
+  if (sigaction(SIGCHLD, &act, NULL) < 0) {
+    fprintf(stderr, "Error in handling child signal: Error%d\n", errno);
+  }
+
+  // this will make sure parent sets up jobs even if child finishes before parent is called
+  sigprocmask(SIG_BLOCK, &mask, &oldMask);
   pid = fork();
   if (pid < 0) {
     fprintf(stderr, "\nError forking child. Error:%d\n", errno);
@@ -799,33 +817,37 @@ int execBackgroundCommand(char* cmd[], char* envp[])
   }
   if (pid == 0) {
     // child process
-    //alert when process has begun and ended. 
-    int jc = jobCount; 
-    printf("\n[%d]%d  running in background\n",jc , getpid()); 
-    execSimpleCommand(cmd, envp); 
-    printf("[%d]%d finished %s\n", jc, getpid(), cmd[0]); 
-
-	exit(0);
+    #ifdef __linux__
+    if (execvpe(cmd[0], cmd, envp) < 0) {
+    #endif
+    #ifdef __APPLE__
+    if (execvP(cmd[0], getenv("PATH"), cmd) < 0) {
+    #endif
+      if (errno == 2) {
+        fprintf(stderr, "\n%s not found.\n", cmd[0]);
+      }
+      else {
+        fprintf(stderr, "\nError execing %s. Error#%d\n", cmd[0], errno);
+      }
+      exit(EXIT_FAILURE);
+    }
+    exit(0);
   }
   else {
     //create new job for job array with all job information
     struct job newjob;
     newjob.pid = pid; 
     newjob.jobid = jobCount;
+    printf("[%d]%d running in background\n", jobCount, pid); 
     newjob.bgcommand = (char *) malloc(100);
     strcpy(newjob.bgcommand, cmd[0]);
     newjob.finishedFlag = 0; 
     jobArray[jobCount] = newjob;
     jobCount++;
-    signal(SIGCHLD, exitChildHandler);
-    while (waitpid(pid, &status,WNOHANG) > 0){} 
-    if (WIFEXITED(status)) {
-       if (WEXITSTATUS(status) == EXIT_FAILURE) {
-        return -1;
-      }
-    }
-
-   return 0;
+    // since jobs have been set up, signals can now unblock
+    sigprocmask(SIG_UNBLOCK, &mask, &oldMask);
+    while (waitpid(pid, &status, WNOHANG) > 0) {} 
+    return 0;
   } 
   
 }
@@ -833,9 +855,22 @@ int execBackgroundCommand(char* cmd[], char* envp[])
 /* 
   @param: once background child ends, alert the rest of the program the child has exited. 
 */
-void exitChildHandler(int signal)
+void exitChildHandler(int signal, siginfo_t* info, void* ctx)
 {
-  jobArray[jobCount - 1].finishedFlag = 1;
+  // find job associated with PID
+  pid_t pid = info->si_pid;
+  int status;
+  int i;
+  for (i = 0; i < jobCount; ++i) {
+    if (jobArray[i].pid == pid) {
+      break;
+    }
+  }
+  if (i < jobCount) {
+    // found background job that completed
+    printf("[%d]%d finished %s\n", jobArray[i].jobid, pid, jobArray[i].bgcommand); 
+    jobArray[i].finishedFlag = 1;
+  }
 }
 
 /* 
@@ -962,7 +997,6 @@ int killCMD(char** args)
         return 1; 
 		  }
     }
-
   }  	
   return 0; 
 }
