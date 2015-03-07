@@ -13,7 +13,7 @@
 #include <fcntl.h>
 #include <signal.h>
 
-int getCommand(char** cmd[], int* numArgs);
+int getCommand(char** cmd[], int* numArgs, int* bufSize);
 int getCommandsFromFile(char*** cmds[], int* numArgs[], int* numCmds);
 int splitCommand(char* cmd[], char*** separated[], int* numCmds, char* separator);
 
@@ -48,8 +48,10 @@ sigset_t oldMask;
 
 int main(int argc, char* argv[], char* envp[])
 {
+  // set up signal mask
   sigemptyset(&mask);
   sigaddset(&mask, SIGCHLD);
+
   if (!isatty((fileno(stdin)))) {
     // input has been redirected (input not from terminal)
     int ret = execQuashFromFile(argv, argc, envp);
@@ -267,6 +269,8 @@ int getCommand(char** cmd[], int* numArgs)
 
   // set numArgs to be the actual number of arguments (not size of array)
   *numArgs = argNum;
+  // shrink command vector to exactly the size needed
+  (*cmd) = realloc(*cmd, (*numArgs) * sizeof(char*));
 
   free(unparsedCmd);
 
@@ -376,6 +380,8 @@ int getCommandsFromFile(char*** cmds[], int* numArgs[], int* numCmds)
     (*cmds)[cmdNum][argNum] = 0;
     // set numArgs to be number of arguments for current command
     (*numArgs)[cmdNum] = argNum;
+    //shrink command to exactly size needed
+    (*cmds)[cmdNum] = realloc((*cmds)[cmdNum], argNum * sizeof(char*));
 
     free(unparsedCmd);
     // check to see if we need to allocate for more commands
@@ -397,6 +403,8 @@ int getCommandsFromFile(char*** cmds[], int* numArgs[], int* numCmds)
     }
   }
   *numCmds = cmdNum;
+  // shrink command array to exactly size needed
+  *cmds = realloc(*cmds, cmdNum * sizeof(char**));
   return 0;
 }
 
@@ -843,7 +851,7 @@ int execBackgroundCommand(char* cmd[], char* envp[])
     struct job newjob;
     newjob.pid = pid; 
     newjob.jobid = jobCount;
-    printf("[%d]%d running in background\n", jobCount, pid); 
+    printf("[%d] %d running in background\n", jobCount, pid); 
     newjob.bgcommand = (char *) malloc(100);
     strcpy(newjob.bgcommand, cmd[0]);
     newjob.finishedFlag = 0; 
@@ -873,7 +881,7 @@ void exitChildHandler(int signal, siginfo_t* info, void* ctx)
   }
   if (i < jobCount) {
     // found background job that completed
-    printf("[%d]%d finished %s\n", jobArray[i].jobid, pid, jobArray[i].bgcommand); 
+    printf("[%d] %d finished %s\n", jobArray[i].jobid, pid, jobArray[i].bgcommand); 
     jobArray[i].finishedFlag = 1;
   }
 }
