@@ -269,7 +269,7 @@ int getCommand(char** cmd[], int* numArgs)
   // set numArgs to be the actual number of arguments (not size of array)
   *numArgs = argNum;
   // shrink command vector to exactly the size needed
-  (*cmd) = realloc(*cmd, (*numArgs) * sizeof(char*));
+  (*cmd) = realloc(*cmd, (argNum + 1) * sizeof(char*));
 
   free(unparsedCmd);
 
@@ -380,7 +380,7 @@ int getCommandsFromFile(char*** cmds[], int* numArgs[], int* numCmds)
     // set numArgs to be number of arguments for current command
     (*numArgs)[cmdNum] = argNum;
     //shrink command to exactly size needed
-    (*cmds)[cmdNum] = realloc((*cmds)[cmdNum], argNum * sizeof(char*));
+    (*cmds)[cmdNum] = realloc((*cmds)[cmdNum], (argNum + 1) * sizeof(char*));
 
     free(unparsedCmd);
     // check to see if we need to allocate for more commands
