@@ -78,6 +78,7 @@ int main(int argc, char* argv[], char* envp[])
     }
     if (getCommand(&cmd, &numArgs) != 0) {
       // error getting command
+      free(cmd);
       continue;
     }
 
@@ -114,6 +115,7 @@ int main(int argc, char* argv[], char* envp[])
       free(cmd[i]);
       i++;
     }
+    printf("Freeing command.");
     free(cmd);
   }
 }
@@ -145,6 +147,7 @@ int execQuashFromFile(char* argv[], int argc, char* envp[])
   // read in input
   if (getCommandsFromFile(&cmds, &numArgs, &numCmds) != 0) {
     // error getting command
+    free(cmds);
     return -1;
   }
 
@@ -213,8 +216,9 @@ int getCommand(char** cmd[], int* numArgs)
     c = getchar();
     if (c == EOF || c == '\n') {
       if (index == 0) {
-	       // no command was entered
-	       return 1;
+        // no command was entered
+        free(unparsedCmd);
+        return 1;
       }
       // reached end of input, append null
       unparsedCmd[index] = '\0';
@@ -244,6 +248,7 @@ int getCommand(char** cmd[], int* numArgs)
     (*cmd)[argNum] = malloc((strlen(arg) + 1) * sizeof(char));
     if (!((*cmd)[argNum])) {
       fprintf(stderr, "\ngetCommand allocation error, Error:%d\n", errno);
+      free(unparsedCmd);
       return -1;
     }
     memset((*cmd)[argNum], '\0', (strlen(arg) + 1));
@@ -257,6 +262,7 @@ int getCommand(char** cmd[], int* numArgs)
       if (!(*cmd)) {
         // error in reallocations
         fprintf(stderr, "\ngetCommand allocation error, Error:%d\n", errno);
+        free(unparsedCmd);
         return -1;
       }
     }
@@ -272,7 +278,6 @@ int getCommand(char** cmd[], int* numArgs)
   (*cmd) = realloc(*cmd, (argNum + 1) * sizeof(char*));
 
   free(unparsedCmd);
-
   return 0;
 }
 
@@ -516,7 +521,7 @@ int execCommand(char* cmd[], int numArgs, char* envp[])
     // replace final & with null
     free(cmd[numArgs - 1]);
     cmd[numArgs - 1] = 0;
-    ret = execBackgroundCommand(newCmd, envp);
+    ret = execBackgroundCommand(cmd, envp);
   } 
   else if (redirectInFlag || redirectOutFlag) {
     if (redirectInFlag == 1) {
