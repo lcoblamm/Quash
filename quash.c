@@ -514,8 +514,13 @@ int execCommand(char* cmd[], int numArgs, char* envp[])
   // we have access to numArgs here and this will be portable
   if (bgFlag) {
     // replace final & with null
-    cmd[numArgs - 1] = 0;
+    char** newCmd = malloc((numArgs -1) * sizeof(char*));
+    memcpy(newCmd, cmd, (numArgs - 1));
+    newCmd[numArgs - 1] = 0;
+
     ret = execBackgroundCommand(cmd, envp);
+
+    free newCmd;
   } 
   else if (redirectInFlag || redirectOutFlag) {
     if (redirectInFlag == 1) {
