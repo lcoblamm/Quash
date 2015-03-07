@@ -862,7 +862,7 @@ int execBackgroundCommand(char* cmd[], char* envp[])
     jobCount++;
     // since jobs have been set up, signals can now unblock
     sigprocmask(SIG_UNBLOCK, &mask, &oldMask);
-    while (waitpid(pid, &status, WNOHANG) > 0) {} 
+    waitpid(pid, &status, WNOHANG);
     return 0;
   } 
   
