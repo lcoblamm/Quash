@@ -630,6 +630,7 @@ void allowProgramKill(int signal)
 */
 int execPipedCommand(char** cmdSet[], int numCmds, char* envp[])
 {
+  signal(SIGINT, preventProgramKill);	 
   int status;
   int numPipes = numCmds - 1;
   pid_t pids[numCmds];
@@ -687,6 +688,7 @@ int execPipedCommand(char** cmdSet[], int numCmds, char* envp[])
         exit(EXIT_FAILURE);
       }
       printf("Process %d exiting", (j + 1));
+    signal(SIGINT, allowProgramKill);
       exit(0);
     }
   }
@@ -706,6 +708,7 @@ int execPipedCommand(char** cmdSet[], int numCmds, char* envp[])
       return -1;
     }
   }
+    signal(SIGINT, allowProgramKill);
   return 0;
 }
 
@@ -722,12 +725,13 @@ int execRedirectedCommand(char* cmd[], int numArgs, char redirectSym, char* envp
   int status;
   int fd;
   pid_t pid;
-
+  signal(SIGINT, preventProgramKill);	 
   pid = fork();
   if (pid < 0) {
     fprintf(stderr, "\nError creating pipe. Error:%d\n", errno);
     return -1;
   }
+
   if (pid == 0) {
     // child process
     // redirect input or output as needed
@@ -785,6 +789,7 @@ int execRedirectedCommand(char* cmd[], int numArgs, char redirectSym, char* envp
         return -1;
       }
     }
+      signal(SIGINT, allowProgramKill);
     return 0;
   }
 }
