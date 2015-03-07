@@ -851,7 +851,7 @@ int execBackgroundCommand(char* cmd[], char* envp[])
     newjob.pid = pid; 
     newjob.jobid = jobCount;
     printf("[%d] %d running in background\n", jobCount, pid); 
-    newjob.bgcommand = (char *) malloc(100);
+    newjob.bgcommand = (char*) malloc(100);
     strcpy(newjob.bgcommand, cmd[0]);
     newjob.finishedFlag = 0; 
     jobArray[jobCount] = newjob;
@@ -882,6 +882,8 @@ void exitChildHandler(int signal, siginfo_t* info, void* ctx)
     // found background job that completed
     printf("[%d] %d finished %s\n", jobArray[i].jobid, pid, jobArray[i].bgcommand); 
     jobArray[i].finishedFlag = 1;
+    // free command name
+    free(jobArray[i].bgcommand);
   }
 }
 
