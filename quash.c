@@ -1,4 +1,3 @@
-
 /*
   File: quash.c
   Authors: Roxanne Calderon & Lynne Coblammers
@@ -13,7 +12,7 @@
 #include <fcntl.h>
 #include <signal.h>
 
-int getCommand(char** cmd[], int* numArgs, int* bufSize);
+int getCommand(char** cmd[], int* numArgs);
 int getCommandsFromFile(char*** cmds[], int* numArgs[], int* numCmds);
 int splitCommand(char* cmd[], char*** separated[], int* numCmds, char* separator);
 
